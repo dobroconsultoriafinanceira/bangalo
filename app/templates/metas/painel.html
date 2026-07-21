@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block titulo %}Metas{% endblock %}
+{% block conteudo %}
+<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+  <div>
+    <h1 class="text-2xl font-semibold">Metas de Faturamento — {{ ano }}</h1>
+    <p class="text-sm text-gray-500">Meta = base ponderada × (1 + crescimento) · recalcula com as premissas</p>
+  </div>
+  <div class="flex items-center gap-2 text-sm">
+    <a href="{{ url_for('metas.painel', ano=ano-1) }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">‹ {{ ano-1 }}</a>
+    <a href="{{ url_for('metas.painel', ano=ano+1) }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">{{ ano+1 }} ›</a>
+    <a href="{{ url_for('metas.registro_diario') }}" class="px-3 py-1.5 rounded-lg bg-bangalo-500 text-white">Registro diário</a>
+    <a href="{{ url_for('metas.historico') }}" class="px-3 py-1.5 rounded-lg border border-bangalo-500 text-bangalo-600 hover:bg-bangalo-50">Histórico</a>
+  </div>
+</div>
+
+<!-- Premissas -->
+<details class="bg-white rounded-2xl border border-borda mb-6" {{ 'open' if not premissa }}>
+  <summary class="px-5 py-3 cursor-pointer text-sm font-medium text-bangalo-700">Premissas da meta (ajustáveis{% if not current_user.eh_consultoria %} — somente consultoria{% endif %})</summary>
+  <form method="post" action="{{ url_for('metas.salvar_premissas', ano=ano) }}"
+        class="px-5 pb-5 grid grid-cols-2 lg:grid-cols-6 gap-3 text-sm items-end">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% set p = premissa %}
+    <div>
+      <label class="block text-xs text-gray-500 mb-1">Peso mês do ano anterior (%)</label>
+      <input name="peso_mes_anterior" value="{{ (p.peso_mes_anterior * 100) | round(0) if p else 60 }}" class="w-full rounded-lg border border-borda px-2 py-1.5">
+    </div>
+    <div>
+      <label class="block text-xs text-gray-500 mb-1">Peso média histórica (%)</label>
+      <input name="peso_media_historica" value="{{ (p.peso_media_historica * 100) | round(0) if p else 40 }}" class="w-full rounded-lg border border-borda px-2 py-1.5">
+    </div>
+    <div>
+      <label class="block text-xs text-gray-500 mb-1">Crescimento alvo (%)</label>
+      <input name="crescimento_alvo" value="{{ (p.crescimento_alvo * 100) | round(0) if p else 8 }}" class="w-full rounded-lg border border-borda px-2 py-1.5">
+    </div>
+    <div>
+      <label class="block text-xs text-gray-500 mb-1">Peso Ter/Qua</label>
+      <input name="peso_ter_qua" value="{{ p.peso_ter_qua if p else '1.0' }}" class="w-full rounded-lg border border-borda px-2 py-1.5">
+    </div>
+    <div>
+      <label class="block text-xs text-gray-500 mb-1">Peso Qui/Sex/Dom</label>
+      <input name="peso_qui_sex_dom" value="{{ p.peso_qui_sex_dom if p else '1.4' }}" class="w-full rounded-lg border border-borda px-2 py-1.5">
+    </div>
+    <div class="flex gap-2 items-end">
+      <div class="flex-1">
+        <label class="block text-xs text-gray-500 mb-1">Peso Sábado</label>
+        <input name="peso_sabado" value="{{ p.peso_sabado if p else '1.6' }}" class="w-full rounded-lg border border-borda px-2 py-1.5">
+      </div>
+      {% if current_user.eh_consultoria %}
+        <button class="px-4 py-1.5 rounded-lg bg-bangalo-500 text-white shrink-0">Recalcular</button>
+      {% endif %}
+    </div>
+  </form>
+</details>
+
+<!-- Tabela anual -->
+<div class="bg-white rounded-2xl border border-borda overflow-x-auto mb-6">
+  <table class="min-w-full text-sm">
+    <thead>
+      <tr class="bg-creme border-b border-borda text-left text-xs">
+        <th class="px-4 py-2 font-semibold">Mês</th>
+        <th class="px-4 py-2 font-semibold num">Mesmo mês {{ ano-1 }}</th>
+        <th class="px-4 py-2 font-semibold num">Média histórica</th>
+        <th class="px-4 py-2 font-semibold num">Base ponderada</th>
+        <th class="px-4 py-2 font-semibold num">Meta {{ ano }}</th>
+        <th class="px-4 py-2 font-semibold num">Realizado</th>
+        <th class="px-4 py-2 font-semibold num">% vs meta</th>
+        <th class="px-4 py-2 font-semibold num">Meta acum.</th>
+        <th class="px-4 py-2 font-semibold num">Realiz. acum.</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in tabela %}
+      <tr class="border-b border-borda/60 hover:bg-creme/50">
+        <td class="px-4 py-2 font-medium">{{ l.mes | nome_mes(true) }}</td>
+        <td class="px-4 py-2 num">{{ l.valor_ano_anterior | brl(false) }}</td>
+        <td class="px-4 py-2 num">{{ l.media_historica | brl(false) }}</td>
+        <td class="px-4 py-2 num">{{ l.base_ponderada | brl(false) }}</td>
+        <td class="px-4 py-2 num font-medium">{{ l.meta | brl(false) }}</td>
+        <td class="px-4 py-2 num">{{ l.realizado | brl(false) }}</td>
+        <td class="px-4 py-2 num">
+          {% if l.pct_meta is not none %}
+            <span class="px-2 py-0.5 rounded-full text-xs font-semibold
+              {{ 'bg-green-50 text-ok' if l.pct_meta >= 1 else 'bg-amber-50 text-alerta' if l.pct_meta >= 0.9 else 'bg-red-50 text-erro' }}">
+              {{ l.pct_meta | pct }}
+            </span>
+          {% else %}—{% endif %}
+        </td>
+        <td class="px-4 py-2 num text-gray-500">{{ l.meta_acumulada | brl(false) }}</td>
+        <td class="px-4 py-2 num text-gray-500">{{ l.realizado_acumulado | brl(false) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr class="bg-creme font-semibold">
+        <td class="px-4 py-2">TOTAL</td>
+        <td colspan="3"></td>
+        <td class="px-4 py-2 num">{{ totais.meta | brl(false) }}</td>
+        <td class="px-4 py-2 num">{{ totais.realizado | brl(false) }}</td>
+        <td class="px-4 py-2 num">{{ totais.pct | pct if totais.pct is not none else '—' }}</td>
+        <td colspan="2"></td>
+      </tr>
+    </tfoot>
+  </table>
+</div>
+
+<div class="bg-white rounded-2xl border border-borda p-5">
+  <h2 class="font-semibold mb-3 text-sm">Meta × Realizado ({{ ano }})</h2>
+  <canvas id="grafico-metas" height="200"></canvas>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+const brl = v => v == null ? '—' : v.toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
+fetch('{{ url_for("dashboard.api_metas_anual", ano=ano) }}')
+  .then(r => r.json())
+  .then(dados => {
+    new Chart(document.getElementById('grafico-metas'), {
+      type: 'bar',
+      data: {
+        labels: ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'],
+        datasets: [
+          { label: 'Meta', data: dados.map(d => d.meta), backgroundColor: '#E7E1D8', borderRadius: 4 },
+          { label: 'Realizado', data: dados.map(d => d.realizado), backgroundColor: '#CC5B2A', borderRadius: 4 },
+        ],
+      },
+      options: {
+        plugins: { tooltip: { callbacks: { label: c => `${c.dataset.label}: ${brl(c.raw)}` } } },
+        scales: { y: { ticks: { callback: v => brl(v) } } },
+      },
+    });
+  });
+</script>
+{% endblock %}

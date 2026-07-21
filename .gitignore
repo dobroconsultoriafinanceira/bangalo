@@ -1,0 +1,36 @@
+# Ambiente / segredos
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Banco local (SQLite de desenvolvimento)
+*.db
+*.sqlite3
+instance/
+
+# Planilhas de dados reais (contêm dados financeiros/folha — não commitar)
+data/planilhas/*.xlsx
+data/planilhas/*.csv
+!data/planilhas/.gitkeep
+
+# Backups
+backups/
+
+# SO / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Claude Code (config local da máquina)
+.claude/

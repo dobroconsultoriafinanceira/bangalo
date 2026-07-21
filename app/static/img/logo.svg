@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 90" role="img" aria-label="bangalô">
+  <style>
+    .wm { font-family: 'Poppins','Segoe UI',sans-serif; font-weight: 700; font-size: 68px; }
+  </style>
+  <text x="0" y="66" class="wm" fill="#CC5B2A" letter-spacing="-2">bangal</text>
+  <!-- letra 'o' -->
+  <text x="232" y="66" class="wm" fill="#CC5B2A">o</text>
+  <!-- bolota/acorn marrom sobre o 'o' -->
+  <path d="M244 30 q22 -26 44 0 q-22 8 -44 0 z" fill="#6B3A1E"/>
+  <rect x="263" y="16" width="6" height="9" rx="3" fill="#6B3A1E"/>
+</svg>

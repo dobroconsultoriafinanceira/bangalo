@@ -1,0 +1,13 @@
+# Desenvolvimento local (SQLite — dispensa psycopg2/gunicorn)
+Flask==3.0.3
+Werkzeug==3.0.3
+Flask-SQLAlchemy==3.1.1
+SQLAlchemy==2.0.43
+Flask-Migrate==4.0.7
+Flask-Login==0.6.3
+Flask-Mail==0.10.0
+Flask-WTF==1.2.1
+APScheduler==3.10.4
+python-dotenv==1.0.1
+openpyxl==3.1.5
+pytest==8.3.2

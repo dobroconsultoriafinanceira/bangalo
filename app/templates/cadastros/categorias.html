@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block titulo %}Plano de Contas{% endblock %}
+{% block conteudo %}
+<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+  <div>
+    <h1 class="text-2xl font-semibold">Plano de Contas</h1>
+    <p class="text-sm text-gray-500">Categorias de entrada e saída do fluxo de caixa</p>
+  </div>
+  <nav class="flex gap-2 text-sm">
+    <a href="{{ url_for('cadastros.categorias') }}" class="px-3 py-1.5 rounded-lg bg-bangalo-500 text-white">Plano de contas</a>
+    <a href="{{ url_for('cadastros.fornecedores') }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">Fornecedores</a>
+    <a href="{{ url_for('cadastros.equipe') }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">Equipe</a>
+  </nav>
+</div>
+
+<details class="bg-white rounded-2xl border border-borda mb-6">
+  <summary class="px-5 py-3 cursor-pointer text-sm font-medium text-bangalo-700">+ Nova categoria</summary>
+  <form method="post" action="{{ url_for('cadastros.salvar_categoria') }}"
+        class="px-5 pb-5 grid grid-cols-2 lg:grid-cols-6 gap-3 text-sm items-end">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div><label class="block text-xs text-gray-500 mb-1">Nome</label><input name="nome" required class="w-full rounded-lg border border-borda px-2 py-1.5"></div>
+    <div><label class="block text-xs text-gray-500 mb-1">Tipo</label>
+      <select name="tipo" class="w-full rounded-lg border border-borda px-2 py-1.5 bg-white">
+        {% for t in tipos %}<option value="{{ t }}">{{ 'Entrada' if t == 'entrada' else 'Saída' }}</option>{% endfor %}
+      </select>
+    </div>
+    <div><label class="block text-xs text-gray-500 mb-1">Grupo</label><input name="grupo" required class="w-full rounded-lg border border-borda px-2 py-1.5"></div>
+    <div><label class="block text-xs text-gray-500 mb-1">Subgrupo</label><input name="subgrupo" class="w-full rounded-lg border border-borda px-2 py-1.5"></div>
+    <label class="flex items-center gap-2"><input type="checkbox" name="ativo" checked class="accent-bangalo-500"> Ativo</label>
+    <button class="px-4 py-1.5 rounded-lg bg-bangalo-500 text-white">Salvar</button>
+  </form>
+</details>
+
+{% for nome_grupo, cats in grupos.items() %}
+<div class="mb-4">
+  <h2 class="text-sm font-semibold text-bangalo-800 mb-2">{{ nome_grupo }}</h2>
+  <div class="bg-white rounded-2xl border border-borda divide-y divide-borda/60">
+    {% for c in cats %}
+    <div class="flex items-center justify-between px-4 py-2 text-sm">
+      <span class="{{ '' if c.ativo else 'text-gray-400 line-through' }}">{{ c.nome }}{% if c.subgrupo %} <span class="text-xs text-gray-400">· {{ c.subgrupo }}</span>{% endif %}</span>
+      <details class="text-right">
+        <summary class="text-bangalo-600 hover:underline text-xs cursor-pointer list-none">Editar</summary>
+        <form method="post" action="{{ url_for('cadastros.salvar_categoria') }}" class="mt-2 flex flex-wrap gap-2 items-center">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="id" value="{{ c.id }}">
+          <input name="nome" value="{{ c.nome }}" class="rounded border border-borda px-2 py-1 text-xs">
+          <input type="hidden" name="tipo" value="{{ c.tipo }}">
+          <input name="grupo" value="{{ c.grupo }}" class="rounded border border-borda px-2 py-1 text-xs w-28">
+          <input name="subgrupo" value="{{ c.subgrupo or '' }}" class="rounded border border-borda px-2 py-1 text-xs w-24" placeholder="subgrupo">
+          <label class="flex items-center gap-1 text-xs"><input type="checkbox" name="ativo" {{ 'checked' if c.ativo }} class="accent-bangalo-500"> Ativo</label>
+          <button class="px-3 py-1 rounded bg-bangalo-500 text-white text-xs">OK</button>
+        </form>
+      </details>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

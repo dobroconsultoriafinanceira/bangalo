@@ -1,0 +1,78 @@
+# Bangalô — produção na VPS (Hostinger)
+#
+# Cenário recomendado (A): a VPS já tem um Caddy central servindo o
+# dashboard. da consultoria. Nesse caso NÃO suba o serviço `caddy` daqui:
+# adicione o bloco do Caddyfile deste repo ao Caddyfile central e aponte o
+# reverse proxy para bangalo_web:8000 (rede externa compartilhada abaixo).
+#
+# Cenário alternativo (B): VPS sem Caddy — suba com o profile "com-caddy":
+#   docker compose --profile com-caddy up -d
+
+services:
+  web:
+    build: .
+    container_name: bangalo_web
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      FLASK_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8000"
+    networks:
+      - bangalo_interna
+      - proxy  # rede compartilhada com o Caddy central (cenário A)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  db:
+    image: postgres:16-alpine
+    container_name: bangalo_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: America/Sao_Paulo
+    volumes:
+      - bangalo_pgdata:/var/lib/postgresql/data
+    networks:
+      - bangalo_interna
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Cenário B apenas — Caddy próprio (conflita com um Caddy central em 80/443)
+  caddy:
+    image: caddy:2
+    container_name: bangalo_caddy
+    profiles: ["com-caddy"]
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - bangalo_caddy_data:/data
+      - bangalo_caddy_config:/config
+    networks:
+      - bangalo_interna
+
+volumes:
+  bangalo_pgdata:
+  bangalo_caddy_data:
+  bangalo_caddy_config:
+
+networks:
+  bangalo_interna:
+  proxy:
+    external: true
+    name: proxy  # crie na VPS: docker network create proxy (e conecte o Caddy central)

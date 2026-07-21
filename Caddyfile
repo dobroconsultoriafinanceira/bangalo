@@ -1,0 +1,23 @@
+# Bloco do Bangalô — TLS automático via Let's Encrypt.
+#
+# PRÉ-REQUISITO: criar no DNS um registro A (ou CNAME) para
+# bangalo.dobroconsultoriafinanceira.com.br apontando para o IP da VPS
+# ANTES do primeiro deploy, senão a emissão do certificado falha.
+#
+# Cenário A (recomendado): copie este bloco para o Caddyfile do Caddy
+# central que já serve dashboard.dobroconsultoriafinanceira.com.br e
+# recarregue (docker exec caddy caddy reload). O container bangalo_web
+# precisa estar na mesma rede docker do Caddy central (rede "proxy").
+#
+# Cenário B: use este arquivo como está com `--profile com-caddy`.
+
+bangalo.dobroconsultoriafinanceira.com.br {
+    encode gzip
+    reverse_proxy bangalo_web:8000
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+    }
+}

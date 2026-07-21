@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block titulo %}{{ periodo.referencia }}{% endblock %}
+{% block conteudo %}
+<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+  <div>
+    <h1 class="text-2xl font-semibold">{{ periodo.referencia }}</h1>
+    <p class="text-sm text-gray-500">
+      {{ periodo.data_inicio | data }} a {{ periodo.data_fim | data }}
+      {% if periodo.meta_quinzena %} · Meta da quinzena {{ periodo.meta_quinzena | brl }}{% endif %}
+    </p>
+  </div>
+  <a href="{{ url_for('gorjetas.listar') }}" class="text-sm text-bangalo-600 hover:underline">‹ Todas as quinzenas</a>
+</div>
+
+<form method="post" action="{{ url_for('gorjetas.salvar', periodo_id=periodo.id) }}">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+<!-- Parâmetros -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+  <div class="bg-white rounded-2xl border border-borda p-5">
+    <h2 class="text-sm font-semibold mb-3">Parâmetros da quinzena</h2>
+    <label class="block text-xs text-gray-500 mb-1" for="p-comissao">Comissão bruta (12% · vem do PDV)</label>
+    <input id="p-comissao" name="comissao_bruta" value="{{ periodo.comissao_bruta }}"
+           inputmode="decimal" class="w-full rounded-lg border border-borda px-3 py-2 text-sm mb-3">
+    <label class="block text-xs text-gray-500 mb-1" for="p-encargos">Desconto de encargos (%)</label>
+    <input id="p-encargos" name="percentual_encargos" value="{{ (periodo.percentual_encargos * 100) | round(2) }}"
+           inputmode="decimal" class="w-full rounded-lg border border-borda px-3 py-2 text-sm">
+    <p class="text-xs text-gray-400 mt-3">Total líquido a ratear:
+      <span class="font-semibold text-tinta" id="total-liquido">{{ resultado.total_liquido | brl }}</span>
+    </p>
+    <p class="text-xs text-gray-400 mt-1">Engine: <span class="font-medium">{{ 'rateio diário' if resultado.modo == 'diario' else 'rateio simplificado (sem grade diária)' }}</span></p>
+  </div>
+
+  <div class="bg-white rounded-2xl border border-borda p-5 lg:col-span-2">
+    <h2 class="text-sm font-semibold mb-3">Rateio por setor</h2>
+    <table class="w-full text-sm" id="tabela-setores">
+      <thead>
+        <tr class="text-left text-xs text-gray-400 border-b border-borda">
+          <th class="py-1.5">Setor</th><th class="py-1.5 num">Pool</th>
+          <th class="py-1.5 num">Pago aos colaboradores</th><th class="py-1.5 text-center">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for setor, pool in resultado.pools.items() %}
+        <tr class="border-b border-borda/60">
+          <td class="py-2 font-medium">{{ setor }}</td>
+          <td class="py-2 num">{{ pool | brl }}</td>
+          <td class="py-2 num">{{ resultado.pago_por_setor.get(setor) | brl }}</td>
+          <td class="py-2 text-center">
+            {% set st = resultado.status_setor(setor) %}
+            <span class="px-2 py-0.5 rounded-full text-xs {{ 'bg-green-50 text-ok' if st == 'OK' else 'bg-red-50 text-erro' }}">{{ st }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if resultado.redistribuido > 0 %}
+      <p class="text-xs text-alerta mt-2">Setor sem presença: {{ resultado.redistribuido | brl }} redistribuído aos demais setores.</p>
+    {% endif %}
+    <div class="flex flex-wrap gap-6 mt-3 text-sm">
+      <p>Total descontos: <span class="font-semibold">{{ resultado.total_descontos | brl }}</span></p>
+      <p>Total a pagar: <span class="font-semibold text-bangalo-700">{{ resultado.total_a_pagar | brl }}</span></p>
+    </div>
+  </div>
+</div>
+
+<!-- Comissão por dia -->
+<div class="bg-white rounded-2xl border border-borda p-5 mb-6 overflow-x-auto">
+  <h2 class="text-sm font-semibold mb-3">Comissão por dia (PDV)</h2>
+  <table class="text-xs min-w-full">
+    <tr>
+      {% for d in dias %}<th class="px-2 py-1 font-medium text-gray-500">{{ d.day }}<br><span class="font-normal">{{ d | dia_semana }}</span></th>{% endfor %}
+    </tr>
+    <tr>
+      {% for d in dias %}
+      <td class="px-1 py-1">
+        <input name="comissao_{{ d.isoformat() }}" value="{{ comissoes.get(d, '') }}"
+               inputmode="decimal" class="w-20 rounded border border-borda px-1.5 py-1 text-right" aria-label="Comissão de {{ d | data }}">
+      </td>
+      {% endfor %}
+    </tr>
+  </table>
+</div>
+
+<!-- Grade de presença -->
+<div class="bg-white rounded-2xl border border-borda p-5 mb-6 overflow-x-auto">
+  <h2 class="text-sm font-semibold mb-3">Presença por dia <span class="font-normal text-gray-400">(marcado = trabalhou)</span></h2>
+  <table class="text-xs min-w-full">
+    <thead>
+      <tr class="border-b border-borda text-left">
+        <th class="py-1.5 pr-3 min-w-[160px]">Colaborador</th>
+        {% for d in dias %}<th class="px-1.5 py-1.5 text-center font-medium text-gray-500">{{ d.day }}</th>{% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in colaboradores %}
+      <tr class="border-b border-borda/60">
+        <td class="py-1.5 pr-3">
+          {{ c.nome }}
+          <span class="text-gray-400">· {{ c.setor.nome }} · {{ c.pontos }} pts</span>
+        </td>
+        {% for d in dias %}
+        <td class="px-1.5 py-1.5 text-center">
+          <input type="checkbox" name="presenca_{{ c.id }}_{{ d.isoformat() }}"
+                 {{ 'checked' if presencas.get((c.id, d)) }}
+                 class="accent-bangalo-500" aria-label="{{ c.nome }} em {{ d | data }}">
+        </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Resultado por colaborador + descontos -->
+<div class="bg-white rounded-2xl border border-borda p-5 mb-6 overflow-x-auto">
+  <h2 class="text-sm font-semibold mb-3">Resultado do rateio</h2>
+  <table class="min-w-full text-sm">
+    <thead>
+      <tr class="text-left text-xs text-gray-400 border-b border-borda">
+        <th class="py-1.5">Colaborador</th><th class="py-1.5">Setor · Função</th>
+        <th class="py-1.5 num">Pontos</th><th class="py-1.5 num">Dias</th>
+        <th class="py-1.5 num">Bruto rateado</th>
+        <th class="py-1.5">Desconto (R$ · motivo)</th>
+        <th class="py-1.5 num">Líquido a pagar</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in resultado.colaboradores %}
+      {% set part = participacoes.get(r.id) %}
+      <tr class="border-b border-borda/60">
+        <td class="py-2 font-medium">{{ r.nome }}</td>
+        <td class="py-2 text-gray-500">{{ r.setor }} · {{ r.funcao }}</td>
+        <td class="py-2 num">{{ r.pontos }}</td>
+        <td class="py-2 num">{{ r.dias_trabalhados }}</td>
+        <td class="py-2 num">{{ r.bruto_rateado | brl }}</td>
+        <td class="py-2">
+          <div class="flex gap-1 items-center">
+            <input name="desconto_{{ r.id }}" value="{{ part.desconto if part and part.desconto else '' }}"
+                   placeholder="0,00" inputmode="decimal"
+                   class="w-20 rounded border border-borda px-1.5 py-1 text-right text-xs" aria-label="Desconto de {{ r.nome }}">
+            <select name="motivo_{{ r.id }}" class="rounded border border-borda px-1 py-1 text-xs bg-white" aria-label="Motivo do desconto de {{ r.nome }}">
+              <option value="">motivo…</option>
+              {% for m in motivos_desconto %}
+                <option {{ 'selected' if part and part.desconto_motivo == m }}>{{ m }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </td>
+        <td class="py-2 num font-semibold {{ 'text-erro' if r.liquido < 0 }}">{{ r.liquido | brl }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="flex flex-wrap gap-3 mb-10">
+  <button class="px-5 py-2 rounded-lg bg-bangalo-500 text-white text-sm hover:bg-bangalo-600">Salvar quinzena</button>
+</div>
+</form>
+
+<form method="post" action="{{ url_for('gorjetas.fechar', periodo_id=periodo.id) }}"
+      onsubmit="return confirm('Fechar {{ periodo.referencia }}? Esta ação é IRREVERSÍVEL: o resultado vira histórico e não recalcula mais.')">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="bg-bangalo-50 border border-bangalo-200 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <p class="text-sm font-semibold text-bangalo-800">Fechar quinzena</p>
+      <p class="text-xs text-gray-600">Grava o snapshot definitivo por colaborador (histórico auditável). Salve antes de fechar.</p>
+    </div>
+    <button class="px-5 py-2 rounded-lg bg-bangalo-800 text-white text-sm hover:opacity-90">Fechar quinzena</button>
+  </div>
+</form>
+{% endblock %}

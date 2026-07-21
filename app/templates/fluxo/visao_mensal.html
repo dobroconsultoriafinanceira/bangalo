@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block titulo %}Fluxo de Caixa{% endblock %}
+{% block conteudo %}
+<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+  <div>
+    <h1 class="text-2xl font-semibold">Fluxo de Caixa</h1>
+    <p class="text-sm text-gray-500">Visão mensal · saldos calculados automaticamente</p>
+  </div>
+  <div class="flex items-center gap-2">
+    <form method="get" class="flex items-center gap-2">
+      <select name="mes" class="rounded-lg border border-borda px-2 py-1.5 text-sm bg-white">
+        {% for m in range(1, 13) %}
+          <option value="{{ m }}" {{ 'selected' if m == mes }}>{{ m | nome_mes }}</option>
+        {% endfor %}
+      </select>
+      <input type="number" name="ano" value="{{ ano }}" class="w-24 rounded-lg border border-borda px-2 py-1.5 text-sm" aria-label="Ano">
+      <button class="px-3 py-1.5 rounded-lg bg-bangalo-500 text-white text-sm">Ver</button>
+    </form>
+    <a href="{{ url_for('fluxo_caixa.lancamentos') }}" class="px-3 py-1.5 rounded-lg border border-bangalo-500 text-bangalo-600 text-sm hover:bg-bangalo-50">Lançamentos</a>
+  </div>
+</div>
+
+<!-- Lançamento rápido -->
+<details class="bg-white rounded-2xl border border-borda mb-6">
+  <summary class="px-5 py-3 cursor-pointer text-sm font-medium text-bangalo-700">+ Lançamento rápido</summary>
+  <form method="post" action="{{ url_for('fluxo_caixa.criar_lancamento') }}"
+        class="px-5 pb-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3 text-sm items-end">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div>
+      <label class="block text-xs text-gray-500 mb-1" for="lr-data">Data</label>
+      <input id="lr-data" type="date" name="data" required class="w-full rounded-lg border border-borda px-2 py-1.5">
+    </div>
+    <div class="lg:col-span-2">
+      <label class="block text-xs text-gray-500 mb-1" for="lr-cat">Categoria</label>
+      <select id="lr-cat" name="categoria_id" required class="w-full rounded-lg border border-borda px-2 py-1.5 bg-white">
+        <option value="">Selecione…</option>
+        {% for c in categorias %}
+          <option value="{{ c.id }}">{{ 'E' if c.tipo == 'entrada' else 'S' }} · {{ c.grupo }} · {{ c.nome }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs text-gray-500 mb-1" for="lr-forn">Fornecedor</label>
+      <select id="lr-forn" name="fornecedor_id" class="w-full rounded-lg border border-borda px-2 py-1.5 bg-white">
+        <option value="">—</option>
+        {% for f in fornecedores %}<option value="{{ f.id }}">{{ f.nome }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs text-gray-500 mb-1" for="lr-fp">Forma pgto.</label>
+      <select id="lr-fp" name="forma_pagamento" class="w-full rounded-lg border border-borda px-2 py-1.5 bg-white">
+        <option value="">—</option>
+        {% for fp in formas_pagamento %}<option>{{ fp }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs text-gray-500 mb-1" for="lr-valor">Valor (R$)</label>
+      <input id="lr-valor" name="valor" required placeholder="0,00" inputmode="decimal" class="w-full rounded-lg border border-borda px-2 py-1.5">
+    </div>
+    <div>
+      <label class="block text-xs text-gray-500 mb-1" for="lr-desc">Descrição</label>
+      <div class="flex gap-2">
+        <input id="lr-desc" name="descricao" class="flex-1 rounded-lg border border-borda px-2 py-1.5 min-w-0">
+        <button class="px-4 py-1.5 rounded-lg bg-bangalo-500 text-white shrink-0">Lançar</button>
+      </div>
+    </div>
+  </form>
+</details>
+
+{% set ns = namespace(entradas=0, saidas=0) %}
+{% for nome_grupo, g in visao.grupos.items() %}
+  {% if g.tipo == 'entrada' %}{% set ns.entradas = ns.entradas + g.total %}
+  {% else %}{% set ns.saidas = ns.saidas + g.total %}{% endif %}
+{% endfor %}
+<div class="bg-white rounded-2xl border border-borda p-5 mb-6 grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+  <div>
+    <p class="text-xs text-gray-400 uppercase">Saldo inicial do mês</p>
+    <p class="font-semibold mt-1">{{ visao.saldo_inicial | brl }}</p>
+  </div>
+  <div>
+    <p class="text-xs text-gray-400 uppercase">Entradas no mês</p>
+    <p class="font-semibold mt-1 text-ok">{{ ns.entradas | brl }}</p>
+  </div>
+  <div>
+    <p class="text-xs text-gray-400 uppercase">Saídas no mês</p>
+    <p class="font-semibold mt-1 text-erro">{{ ns.saidas | brl }}</p>
+  </div>
+  <div>
+    <p class="text-xs text-gray-400 uppercase">Saldo final do mês</p>
+    {% set saldo_final = visao.saldos_por_dia[visao.dias[-1]] %}
+    <p class="font-semibold mt-1 {{ 'text-erro' if saldo_final < 0 }}">{{ saldo_final | brl }}</p>
+  </div>
+</div>
+
+<!-- Grade dia × grupo (grupos colapsáveis) -->
+<div class="bg-white rounded-2xl border border-borda overflow-x-auto">
+  <table class="text-xs min-w-full">
+    <thead>
+      <tr class="bg-creme border-b border-borda">
+        <th class="sticky left-0 bg-creme text-left px-3 py-2 font-semibold min-w-[190px] z-10">Grupo / Categoria</th>
+        {% for d in visao.dias %}
+          <th class="px-2 py-2 font-medium text-gray-500 num">{{ '%02d' % d }}</th>
+        {% endfor %}
+        <th class="px-3 py-2 font-semibold num">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for nome_grupo, g in visao.grupos.items() %}
+      {% set gid = loop.index %}
+      <tr class="border-b border-borda bg-gray-50 cursor-pointer hover:bg-gray-100"
+          onclick="document.querySelectorAll('.cat-g{{ gid }}').forEach(el => el.classList.toggle('hidden'))">
+        <td class="sticky left-0 bg-gray-50 px-3 py-2 font-semibold {{ 'text-ok' if g.tipo == 'entrada' else 'text-bangalo-800' }}">
+          ▸ {{ nome_grupo }}
+        </td>
+        {% for d in visao.dias %}
+          <td class="px-2 py-2 num">{% if g.total_por_dia.get(d) %}{{ g.total_por_dia[d] | brl(false) }}{% endif %}</td>
+        {% endfor %}
+        <td class="px-3 py-2 num font-bold">{{ g.total | brl(false) }}</td>
+      </tr>
+      {% for cat_id, cat in g.categorias.items() %}
+      <tr class="border-b border-borda/60 hidden cat-g{{ gid }}">
+        <td class="sticky left-0 bg-white px-3 py-1.5 pl-7 text-gray-600">{{ cat.nome }}</td>
+        {% for d in visao.dias %}
+          <td class="px-2 py-1.5 num text-gray-600">{% if cat.por_dia.get(d) %}{{ cat.por_dia[d] | brl(false) }}{% endif %}</td>
+        {% endfor %}
+        <td class="px-3 py-1.5 num font-medium">{{ cat.total | brl(false) }}</td>
+      </tr>
+      {% endfor %}
+      {% endfor %}
+      <tr class="bg-creme font-semibold border-t-2 border-borda">
+        <td class="sticky left-0 bg-creme px-3 py-2">Saldo final do dia</td>
+        {% for d in visao.dias %}
+          <td class="px-2 py-2 num {{ 'text-erro' if visao.saldos_por_dia[d] < 0 }}">{{ visao.saldos_por_dia[d] | brl(false) }}</td>
+        {% endfor %}
+        <td></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p class="text-xs text-gray-400 mt-2">Clique em um grupo para expandir as categorias. Edição de movimentos individuais em “Lançamentos”.</p>
+{% endblock %}

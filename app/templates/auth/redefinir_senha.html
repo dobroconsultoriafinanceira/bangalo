@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nova senha · Bangalô</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>body{background:#FAF7F2}</style>
+</head>
+<body class="min-h-screen flex items-center justify-center px-4">
+  <form method="post" class="w-full max-w-sm bg-white rounded-2xl shadow-sm border p-6 space-y-4" style="border-color:#E7E1D8">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <h1 class="text-lg font-semibold">Definir nova senha</h1>
+    {% with mensagens = get_flashed_messages(with_categories=true) %}
+      {% for categoria, msg in mensagens %}
+        <div class="rounded-lg px-3 py-2 text-sm bg-red-50 border border-red-200 text-red-800">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+    <input name="senha" type="password" required minlength="8" placeholder="Nova senha (mín. 8 caracteres)"
+           class="w-full rounded-lg border px-3 py-2 text-sm" style="border-color:#E7E1D8">
+    <input name="confirmar" type="password" required minlength="8" placeholder="Confirmar nova senha"
+           class="w-full rounded-lg border px-3 py-2 text-sm" style="border-color:#E7E1D8">
+    <button class="w-full py-2.5 rounded-lg text-white text-sm" style="background:#CC5B2A">Salvar senha</button>
+  </form>
+</body>
+</html>

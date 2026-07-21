@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block titulo %}Faturamento Histórico{% endblock %}
+{% block conteudo %}
+<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+  <div>
+    <h1 class="text-2xl font-semibold">Faturamento Histórico</h1>
+    <p class="text-sm text-gray-500">Base das metas (média histórica do mês)</p>
+  </div>
+  <a href="{{ url_for('metas.painel') }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white text-sm">‹ Painel de metas</a>
+</div>
+
+<form method="post" class="bg-white rounded-2xl border border-borda p-4 mb-6 flex flex-wrap items-end gap-3 text-sm">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div>
+    <label class="block text-xs text-gray-500 mb-1">Ano</label>
+    <input type="number" name="ano" value="2026" class="w-24 rounded-lg border border-borda px-2 py-1.5">
+  </div>
+  <div>
+    <label class="block text-xs text-gray-500 mb-1">Mês</label>
+    <select name="mes" class="rounded-lg border border-borda px-2 py-1.5 bg-white">
+      {% for m in range(1, 13) %}<option value="{{ m }}">{{ m | nome_mes }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs text-gray-500 mb-1">Valor (R$)</label>
+    <input name="valor" placeholder="0,00" inputmode="decimal" class="w-36 rounded-lg border border-borda px-2 py-1.5">
+  </div>
+  <button class="px-4 py-1.5 rounded-lg bg-bangalo-500 text-white">Salvar valor</button>
+</form>
+
+<div class="bg-white rounded-2xl border border-borda overflow-x-auto">
+  <table class="min-w-full text-sm">
+    <thead>
+      <tr class="bg-creme border-b border-borda text-left">
+        <th class="px-4 py-2 font-semibold">Mês</th>
+        {% for a in anos %}<th class="px-4 py-2 font-semibold num">{{ a }}</th>{% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for mes in range(1, 13) %}
+      <tr class="border-b border-borda/60">
+        <td class="px-4 py-2 font-medium">{{ mes | nome_mes(true) }}</td>
+        {% for a in anos %}
+          <td class="px-4 py-2 num">{{ historico.get(a, {}).get(mes) | brl(false) if historico.get(a, {}).get(mes) else '—' }}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+      <tr class="bg-creme font-semibold">
+        <td class="px-4 py-2">TOTAL</td>
+        {% for a in anos %}
+          {% set soma = historico.get(a, {}).values() | sum %}
+          <td class="px-4 py-2 num">{{ soma | brl(false) }}</td>
+        {% endfor %}
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}

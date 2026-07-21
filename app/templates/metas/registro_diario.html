@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block titulo %}Registro Diário{% endblock %}
+{% block conteudo %}
+<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+  <div>
+    <h1 class="text-2xl font-semibold">Registro Diário de Faturamento</h1>
+    <p class="text-sm text-gray-500">Fonte do “Realizado” das metas · restaurante fecha às segundas</p>
+  </div>
+  <div class="flex items-center gap-2 text-sm">
+    <form method="get" class="flex items-center gap-2">
+      <select name="mes" class="rounded-lg border border-borda px-2 py-1.5 bg-white">
+        {% for m in range(1, 13) %}<option value="{{ m }}" {{ 'selected' if m == mes }}>{{ m | nome_mes }}</option>{% endfor %}
+      </select>
+      <input type="number" name="ano" value="{{ ano }}" class="w-24 rounded-lg border border-borda px-2 py-1.5" aria-label="Ano">
+      <button class="px-3 py-1.5 rounded-lg bg-bangalo-500 text-white">Ver</button>
+    </form>
+    <a href="{{ url_for('metas.painel', ano=ano) }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">‹ Painel</a>
+  </div>
+</div>
+
+<div class="bg-white rounded-2xl border border-borda p-4 mb-6 grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+  <div><p class="text-xs text-gray-400 uppercase">Meta do mês</p><p class="font-semibold mt-1">{{ linha_meta.meta | brl }}</p></div>
+  <div><p class="text-xs text-gray-400 uppercase">Realizado (mês)</p><p class="font-semibold mt-1">{{ linha_meta.realizado | brl }}</p></div>
+  <div><p class="text-xs text-gray-400 uppercase">% da meta</p>
+    <p class="font-semibold mt-1">{% if linha_meta.pct_meta is not none %}{{ linha_meta.pct_meta | pct }}{% else %}—{% endif %}</p></div>
+</div>
+
+<form method="post" action="{{ url_for('metas.salvar_registro_diario') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="ano" value="{{ ano }}">
+  <input type="hidden" name="mes" value="{{ mes }}">
+  <div class="bg-white rounded-2xl border border-borda overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead>
+        <tr class="bg-creme border-b border-borda text-left text-xs">
+          <th class="px-4 py-2 font-semibold">Data</th>
+          <th class="px-4 py-2 font-semibold">Dia</th>
+          <th class="px-4 py-2 font-semibold text-center">Aberto?</th>
+          <th class="px-4 py-2 font-semibold num">Faturamento (R$)</th>
+          <th class="px-4 py-2 font-semibold num">Meta do dia</th>
+          <th class="px-4 py-2 font-semibold num">Diferença</th>
+          <th class="px-4 py-2 font-semibold num">% dia</th>
+          <th class="px-4 py-2 font-semibold num">Real. acum.</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in linhas %}
+        <tr class="border-b border-borda/60 {{ 'bg-gray-50/60' if not l.aberto }}">
+          <td class="px-4 py-1.5">{{ l.data | data_curta }}</td>
+          <td class="px-4 py-1.5 text-gray-500">{{ l.data | dia_semana }}</td>
+          <td class="px-4 py-1.5 text-center">
+            <input type="checkbox" name="aberto_{{ l.data.isoformat() }}" {{ 'checked' if l.aberto }} class="accent-bangalo-500" aria-label="Aberto em {{ l.data | data }}">
+          </td>
+          <td class="px-4 py-1.5 num">
+            <input name="faturamento_{{ l.data.isoformat() }}" value="{{ l.realizado if l.realizado is not none else '' }}"
+                   inputmode="decimal" placeholder="—"
+                   class="w-28 rounded border border-borda px-2 py-1 text-right {{ 'bg-gray-100' if not l.aberto }}" aria-label="Faturamento de {{ l.data | data }}">
+          </td>
+          <td class="px-4 py-1.5 num text-gray-500">{{ l.meta_dia | brl(false) if l.meta_dia else '' }}</td>
+          <td class="px-4 py-1.5 num {{ 'text-erro' if l.diferenca is not none and l.diferenca < 0 else 'text-ok' if l.diferenca }}">
+            {{ l.diferenca | brl(false) if l.diferenca is not none else '' }}
+          </td>
+          <td class="px-4 py-1.5 num">
+            {% if l.pct is not none %}<span class="{{ 'text-ok' if l.pct >= 1 else 'text-alerta' if l.pct >= 0.9 else 'text-erro' }}">{{ l.pct | pct }}</span>{% endif %}
+          </td>
+          <td class="px-4 py-1.5 num text-gray-400">{{ l.real_acum | brl(false) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="mt-4"><button class="px-5 py-2 rounded-lg bg-bangalo-500 text-white text-sm hover:bg-bangalo-600">Salvar registro</button></div>
+</form>
+{% endblock %}

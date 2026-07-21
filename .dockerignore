@@ -1,0 +1,14 @@
+.git
+.gitignore
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+instance
+backups
+data/planilhas/*.xlsx
+data/planilhas/*.csv
+.env
+tests
+*.md

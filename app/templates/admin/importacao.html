@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block titulo %}Importação{% endblock %}
+{% block conteudo %}
+<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+  <div>
+    <h1 class="text-2xl font-semibold">Importação de planilhas</h1>
+    <p class="text-sm text-gray-500">Carga inicial (one-shot). Idempotente: rodar de novo não duplica.</p>
+  </div>
+  <nav class="flex gap-2 text-sm">
+    <a href="{{ url_for('admin.usuarios') }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">Usuários</a>
+    <a href="{{ url_for('admin.logs_auditoria') }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">Auditoria</a>
+    <a href="{{ url_for('admin.importacao') }}" class="px-3 py-1.5 rounded-lg bg-bangalo-500 text-white">Importação</a>
+  </nav>
+</div>
+
+<div class="bg-white rounded-2xl border border-borda p-6 max-w-2xl">
+  <form method="post" enctype="multipart/form-data" class="space-y-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div>
+      <label class="block text-sm font-medium mb-1" for="tipo">Tipo de planilha</label>
+      <select id="tipo" name="tipo" required class="w-full rounded-lg border border-borda px-3 py-2 text-sm bg-white">
+        <option value="metas">Metas de Faturamento (histórico + registro diário)</option>
+        <option value="fluxo">Fluxo de Caixa (aba 2026)</option>
+        <option value="gorjetas">Calculadora de Gorjetas (histórico + quinzenas)</option>
+      </select>
+    </div>
+    <div>
+      <label class="block text-sm font-medium mb-1" for="arquivo">Arquivo (.xlsx ou .csv, até 20 MB)</label>
+      <input id="arquivo" type="file" name="arquivo" accept=".xlsx,.csv" required
+             class="w-full text-sm border border-borda rounded-lg px-3 py-2">
+    </div>
+    <button class="px-5 py-2 rounded-lg bg-bangalo-500 text-white text-sm hover:bg-bangalo-600">Importar</button>
+  </form>
+  <div class="mt-6 text-xs text-gray-500 space-y-1 border-t border-borda pt-4">
+    <p><strong>Ordem sugerida:</strong> 1) Cadastros já semeados → 2) Metas → 3) Fluxo de Caixa → 4) Gorjetas.</p>
+    <p>Cada importação emite um relatório de conferência (totais importados × totais da planilha).</p>
+    <p>Integração com o PDV F-Rest fica como etapa futura (adapter isolado, sem carga automática agora).</p>
+  </div>
+</div>
+{% endblock %}
