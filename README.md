@@ -107,8 +107,21 @@ python -m flask importar gorjetas "Calculadora de Gorjetas (2026).xlsx"
 Ou pela tela **Admin › Importação** (upload). Cada importer é **idempotente**
 (rodar 2× não duplica) e emite **relatório de conferência** (totais importados
 × planilha). Notas:
-- **Fluxo:** só a aba `2026`. O cabeçalho traz ano visualmente errado → usamos
-  mês/dia e forçamos 2026; 29/02 (inexistente em 2026) é pulado com aviso.
+- **Fluxo:** só a aba `2026`. Estrutura real confirmada célula a célula:
+  - Cada mês = colunas de **dia** + 1 coluna de **subtotal mensal**. A coluna de
+    dia tem "Saldo Inicial" preenchido; a de subtotal, vazio. Importamos só os
+    dias (senão o mês contaria em dobro).
+  - O ano do cabeçalho está errado (2023/2024/2026 misturados) → usamos mês/dia
+    e forçamos **2026**. 29/02 não existe em 2026 e é pulado (na planilha esse
+    dia não tem movimento real).
+  - "Total Saídas" da planilha **não inclui impostos** (DAS/ICMS) — eles entram
+    só na Receita Líquida. A conferência trata os três blocos separados
+    (Entradas / Impostos / Saídas operacionais).
+  - Conferência contra a **soma diária** da planilha: Entradas e Impostos batem
+    à vírgula. Nas saídas, o import é **mais completo** que o total da planilha
+    (a fórmula de total dela omite algumas linhas de despesa, ex.: "Assessoria
+    Financeira" em ago/26 — os valores estão nas células, mas fora do somatório).
+  - Importa também o bloco **Saldo Aplicação** (entradas/rendimentos/resgates).
 - **Gorjetas:** a aba `Histórico` vira snapshots imutáveis (`fechamento_gorjeta`).
 - **Metas:** `Faturamento Histórico` (2022–2026) + `Registro Diário 2026` + premissas.
 

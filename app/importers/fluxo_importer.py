@@ -1,24 +1,29 @@
 # -*- coding: utf-8 -*-
 """Importa a aba '2026' da planilha 'FLUXO DE CAIXA BANGALO'.
 
-A planilha é uma matriz conta(linha) × dia(coluna). Cada célula preenchida
-vira um `lancamento`. Linhas de subtotal (calculadas) são puladas; os
-cabeçalhos de data (linha 1) trazem o ano visualmente errado — usamos
-mês/dia e forçamos o ano-alvo (2026). Blocos:
+A aba é uma matriz conta(linha) × dia(coluna). ESTRUTURA REAL (confirmada
+célula a célula):
 
-  linhas   3–14  ENTRADAS  · Operacional
-  linha    17    ENTRADAS  · Patrocínio
-  linhas   19–20 ENTRADAS  · Financeiras
-  linhas   23–24 SAÍDAS    · Impostos
-  linhas   27–44 SAÍDAS    · Folha/Salários
-  linhas   46–49 SAÍDAS    · Despesas Gerais
-  linhas   51–144 SAÍDAS   · Compras (CPV) [cada linha = fornecedor]
-  linhas  147–182 SAÍDAS   · Despesas Fixas
-  linhas  184–190 SAÍDAS   · Outros/Financeiro
+  - Cada mês = colunas de DIA + 1 coluna de SUBTOTAL mensal.
+  - A coluna de dia tem "Saldo Inicial" (linha 2) preenchido;
+    a coluna de subtotal mensal tem "Saldo Inicial" VAZIO.
+    -> usamos isso para importar SÓ os dias e ignorar os subtotais
+       (senão cada mês seria contado duas vezes).
+  - O ano dos cabeçalhos está errado (2023/2024/2026 misturados): usamos
+    mês/dia e forçamos 2026. 29/02 não existe em 2026 e é pulado — na
+    planilha esse dia não tem movimento real (só saldos calculados).
 
-Idempotente: apaga os lançamentos do ano-alvo antes de reimportar.
-Emite relatório de conferência (total importado vs total esperado).
+Blocos de linha (col A/B):
+  3–14  ENTRADAS · Operacional      | 17 Patrocínio | 19–20 Financeiras
+  23–24 Impostos | 27–44 Folha/Salários | 46–49 Despesas Gerais
+  51–144 Compras (CPV) [fornecedor] | 147–182 Despesas Fixas
+  184–190 Outros/Financeiro
+  195/196/197 Aplicação: ENTRADA / RENDIMENTO / RESGATE
+
+Idempotente: apaga lançamentos e aplicações do ano-alvo antes de reimportar.
+Emite conferência contra os subtotais mensais da própria planilha.
 """
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -27,11 +32,25 @@ from sqlalchemy import extract
 
 from app.extensions import db
 from app.importers.comum import para_data, para_decimal
-from app.models.fluxo import Categoria, ConfigSistema, Fornecedor, Lancamento
+from app.models.fluxo import (
+    AplicacaoFinanceira,
+    Categoria,
+    ConfigSistema,
+    Fornecedor,
+    Lancamento,
+)
 from app.services.fluxo_caixa import CHAVE_DATA_ABERTURA, CHAVE_SALDO_ABERTURA
 
 ANO_ALVO = 2026
 ABA = "2026"
+
+LINHA_SALDO_INICIAL = 2
+LINHA_TOTAL_ENTRADAS = 22
+LINHA_TOTAL_IMPOSTOS = 25   # "Total Saidas" da planilha NÃO inclui impostos
+LINHA_TOTAL_SAIDAS = 192    # = saídas operacionais (sem impostos)
+LINHA_SALDO_APLICACAO = 194
+APLICACAO_ROWS = {195: "entrada", 196: "rendimento", 197: "resgate"}
+CHAVE_APLICACAO_ABERTURA = "saldo_aplicacao_abertura"
 
 # (linha_inicio, linha_fim_inclusive, tipo, grupo, eh_fornecedor)
 FAIXAS = [
@@ -51,7 +70,7 @@ SKIP_LABELS = {"subtotal", "total", "receita líquida", "saldo"}
 
 def _pular(label: str) -> bool:
     low = label.strip().lower()
-    return not low or any(low.startswith(k) or k in low for k in SKIP_LABELS)
+    return not low or any(k in low for k in SKIP_LABELS)
 
 
 def importar(caminho: Path) -> list[str]:
@@ -63,46 +82,62 @@ def importar(caminho: Path) -> list[str]:
     linhas = list(ws.iter_rows(values_only=True))
     wb.close()
 
-    # mapa coluna -> data (linha 1, a partir da col C / índice 2)
-    # O cabeçalho traz o ano visualmente errado (ex.: 2024): usamos mês/dia e
-    # forçamos o ano-alvo. Datas inexistentes em 2026 (29/02) são puladas.
+    def cel(row_idx1: int, col_idx0: int):
+        """Valor da célula (linha 1-based da planilha, coluna 0-based da lista)."""
+        r = row_idx1 - 1
+        if r >= len(linhas) or col_idx0 >= len(linhas[r]):
+            return None
+        return linhas[r][col_idx0]
+
     header = linhas[0]
-    col_data: dict[int, object] = {}
-    colunas_puladas = 0
+
+    # --- classifica colunas: DIA (Saldo Inicial preenchido) x SUBTOTAL (vazio) ---
+    col_data: dict[int, object] = {}          # col -> date (só dias válidos em 2026)
+    cols_subtotal: list[int] = []
+    feb29 = 0
     for col in range(2, len(header)):
-        d = para_data(header[col])
-        if not d:
+        v1 = header[col]
+        saldo = cel(LINHA_SALDO_INICIAL, col)
+        if not isinstance(v1, datetime):
+            # cabeçalho de subtotal pode ser texto ("Abr - 23")
+            if saldo is None and (cel(LINHA_TOTAL_ENTRADAS, col) is not None
+                                  or cel(3, col) is not None):
+                cols_subtotal.append(col)
             continue
-        try:
-            col_data[col] = d.replace(year=ANO_ALVO)
-        except ValueError:
-            colunas_puladas += 1
+        if isinstance(saldo, (int, float)):
+            try:
+                col_data[col] = v1.replace(year=ANO_ALVO).date()  # dia real
+            except ValueError:
+                feb29 += 1  # 29/02 — sem movimento real na planilha
+        else:
+            cols_subtotal.append(col)  # subtotal mensal (Saldo Inicial vazio)
 
-    # saldo de abertura: linha 2 (Saldo Inicial), primeira coluna de data
     primeira_col = min(col_data) if col_data else 2
-    saldo_abertura = para_decimal(linhas[1][primeira_col]) if len(linhas) > 1 else None
+    saldo_abertura = para_decimal(cel(LINHA_SALDO_INICIAL, primeira_col))
     data_abertura = col_data.get(primeira_col)
+    aplic_abertura = para_decimal(cel(LINHA_SALDO_APLICACAO, primeira_col))
 
-    # idempotência: remove lançamentos do ano-alvo antes de recriar
-    db.session.query(Lancamento).filter(extract("year", Lancamento.data) == ANO_ALVO).delete(
-        synchronize_session=False
-    )
+    # idempotência
+    db.session.query(Lancamento).filter(
+        extract("year", Lancamento.data) == ANO_ALVO
+    ).delete(synchronize_session=False)
+    db.session.query(AplicacaoFinanceira).filter(
+        extract("year", AplicacaoFinanceira.data) == ANO_ALVO
+    ).delete(synchronize_session=False)
 
     cache_cat: dict[tuple[str, str], Categoria] = {}
     cache_forn: dict[str, Fornecedor] = {}
     total_entradas = Decimal("0")
-    total_saidas = Decimal("0")
+    total_impostos = Decimal("0")
+    total_saidas_oper = Decimal("0")  # saídas sem impostos (como a planilha)
     n_lanc = 0
 
+    # --- lançamentos de fluxo ---
     for ini, fim, tipo, grupo, eh_forn in FAIXAS:
         for r in range(ini, fim + 1):
-            if r - 1 >= len(linhas):
-                continue
-            row = linhas[r - 1]
-            label = str(row[1] or "").strip()  # col B
+            label = str(cel(r, 1) or "").strip()  # col B
             if _pular(label):
                 continue
-
             if eh_forn:
                 fornecedor = _get_fornecedor(cache_forn, label)
                 categoria = _get_categoria(cache_cat, "Compras", tipo, grupo)
@@ -110,39 +145,97 @@ def importar(caminho: Path) -> list[str]:
             else:
                 categoria = _get_categoria(cache_cat, label, tipo, grupo)
                 fornecedor_id = None
-
             for col, data in col_data.items():
-                if col >= len(row):
-                    continue
-                valor = para_decimal(row[col])
+                valor = para_decimal(cel(r, col))
                 if valor is None or valor == 0:
                     continue
                 db.session.add(Lancamento(
-                    data=data, categoria_id=categoria.id, fornecedor_id=fornecedor_id,
-                    valor=valor, descricao=None,
+                    data=data, categoria_id=categoria.id,
+                    fornecedor_id=fornecedor_id, valor=valor,
                 ))
                 n_lanc += 1
                 if tipo == "entrada":
                     total_entradas += valor
+                elif grupo == "Impostos":
+                    total_impostos += valor
                 else:
-                    total_saidas += valor
+                    total_saidas_oper += valor
 
+    # --- bloco de aplicação financeira ---
+    n_aplic = 0
+    for row_idx, tipo_aplic in APLICACAO_ROWS.items():
+        for col, data in col_data.items():
+            valor = para_decimal(cel(row_idx, col))
+            if valor is None or valor == 0:
+                continue
+            db.session.add(AplicacaoFinanceira(data=data, tipo=tipo_aplic, valor=valor))
+            n_aplic += 1
+
+    # --- configs de abertura ---
     if saldo_abertura is not None:
         ConfigSistema.definir(CHAVE_SALDO_ABERTURA, str(saldo_abertura))
     if data_abertura is not None:
         ConfigSistema.definir(CHAVE_DATA_ABERTURA, data_abertura.isoformat())
+    if aplic_abertura is not None:
+        ConfigSistema.definir(CHAVE_APLICACAO_ABERTURA, str(aplic_abertura))
 
     db.session.flush()
+
+    # --- conferência ---
+    # Fonte da verdade = as linhas "Total" DIÁRIAS da planilha (o que importamos):
+    #   r22 Total Entradas · r25 Total Impostos · r192 Total Saídas (sem impostos).
+    plan_entradas = sum((para_decimal(cel(LINHA_TOTAL_ENTRADAS, c)) or Decimal("0")
+                         for c in col_data), Decimal("0"))
+    plan_impostos = sum((para_decimal(cel(LINHA_TOTAL_IMPOSTOS, c)) or Decimal("0")
+                         for c in col_data), Decimal("0"))
+    plan_saidas = sum((para_decimal(cel(LINHA_TOTAL_SAIDAS, c)) or Decimal("0")
+                       for c in col_data), Decimal("0"))
+
+    # Sinaliza meses onde o RESUMO mensal da planilha diverge da soma dos dias
+    # (inconsistência da própria planilha — não do import).
+    from collections import defaultdict
+
+    diario_ent: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+    for c, d in col_data.items():
+        diario_ent[d.month] += para_decimal(cel(LINHA_TOTAL_ENTRADAS, c)) or Decimal("0")
+    resumo_ent: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+    sub_ordenados = sorted(cols_subtotal)
+    for i, c in enumerate(sub_ordenados, start=1):
+        resumo_ent[i] += para_decimal(cel(LINHA_TOTAL_ENTRADAS, c)) or Decimal("0")
+    meses_inconsistentes = sorted(
+        m for m in range(1, 13)
+        if (diario_ent[m] - resumo_ent.get(m, Decimal("0"))).copy_abs() > Decimal("0.05")
+    )
+
+    tol = Decimal("0.05")
+
+    def linha_conf(rotulo, importado, planilha):
+        dif = importado - planilha
+        if dif.copy_abs() <= tol:
+            status = "OK"
+        elif dif > 0:
+            # importamos células de despesa que a fórmula de total da planilha não soma
+            status = f"import +R$ {dif} (a planilha não totaliza algumas linhas; import mais completo)"
+        else:
+            status = f"conferir (faltam R$ {dif.copy_abs()})"
+        return f"{rotulo}: importado R$ {importado} | planilha (dias) R$ {planilha} -> {status}."
+
     relatorio = [
-        f"Fluxo {ANO_ALVO}: {n_lanc} lançamentos importados em {len(col_data)} dias.",
-        f"Total de entradas: R$ {total_entradas} · total de saídas: R$ {total_saidas}.",
-        f"Saldo de abertura: R$ {saldo_abertura or 0} em {data_abertura or '—'}.",
-        "Confira estes totais contra os subtotais da planilha (tolerância de centavos).",
+        f"Fluxo {ANO_ALVO}: {n_lanc} lançamentos em {len(col_data)} dias; "
+        f"{n_aplic} movimentos de aplicação.",
+        linha_conf("Entradas", total_entradas, plan_entradas),
+        linha_conf("Impostos", total_impostos, plan_impostos),
+        linha_conf("Saídas operacionais (sem impostos)", total_saidas_oper, plan_saidas),
+        f"Saldo de abertura: R$ {saldo_abertura or 0} em {data_abertura or '—'} "
+        f"| aplicação inicial: R$ {aplic_abertura or 0}.",
     ]
-    if colunas_puladas:
+    if feb29:
+        relatorio.append("29/02 ignorado (inexistente em 2026, sem movimento real na planilha).")
+    if meses_inconsistentes:
+        nomes = ", ".join(str(m).zfill(2) for m in meses_inconsistentes)
         relatorio.append(
-            f"Atenção: {colunas_puladas} coluna(s) de data inexistente(s) em {ANO_ALVO} "
-            "(ex.: 29/02) foram puladas."
+            "Aviso: na planilha original, a coluna de resumo mensal diverge da soma "
+            f"dos dias nos meses {nomes}. Importamos a soma diária (movimentos reais)."
         )
     return relatorio
 

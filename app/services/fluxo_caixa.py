@@ -34,7 +34,10 @@ GRUPOS_SAIDA = (
 def saldo_abertura() -> tuple[Decimal, date | None]:
     valor = Decimal(ConfigSistema.obter(CHAVE_SALDO_ABERTURA, "0"))
     data_txt = ConfigSistema.obter(CHAVE_DATA_ABERTURA)
-    return valor, date.fromisoformat(data_txt) if data_txt else None
+    if not data_txt:
+        return valor, None
+    # tolera tanto "2026-01-01" quanto "2026-01-01T00:00:00"
+    return valor, date.fromisoformat(data_txt[:10])
 
 
 def totais_por_tipo(inicio: date, fim: date) -> dict[str, Decimal]:
