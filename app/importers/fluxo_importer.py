@@ -89,6 +89,17 @@ def importar(caminho: Path) -> list[str]:
             return None
         return linhas[r][col_idx0]
 
+    def valor_num(row_idx1: int, col_idx0: int) -> Decimal | None:
+        """Valor SÓ se a célula for numérica de verdade.
+
+        A planilha (como o Excel) ignora células de texto nas somas. Há ao
+        menos uma célula digitada como texto ("284.87" no Umehara/24-06) que
+        NÃO entra no total nem no saldo da planilha — importá-la divergiria o
+        saldo. Por isso aceitamos apenas int/float aqui.
+        """
+        v = cel(row_idx1, col_idx0)
+        return para_decimal(v) if isinstance(v, (int, float)) else None
+
     header = linhas[0]
 
     # --- classifica colunas: DIA (Saldo Inicial preenchido) x SUBTOTAL (vazio) ---
@@ -146,7 +157,7 @@ def importar(caminho: Path) -> list[str]:
                 categoria = _get_categoria(cache_cat, label, tipo, grupo)
                 fornecedor_id = None
             for col, data in col_data.items():
-                valor = para_decimal(cel(r, col))
+                valor = valor_num(r, col)
                 if valor is None or valor == 0:
                     continue
                 db.session.add(Lancamento(
@@ -165,7 +176,7 @@ def importar(caminho: Path) -> list[str]:
     n_aplic = 0
     for row_idx, tipo_aplic in APLICACAO_ROWS.items():
         for col, data in col_data.items():
-            valor = para_decimal(cel(row_idx, col))
+            valor = valor_num(row_idx, col)
             if valor is None or valor == 0:
                 continue
             db.session.add(AplicacaoFinanceira(data=data, tipo=tipo_aplic, valor=valor))

@@ -63,6 +63,38 @@ def test_importer_ignora_subtotal_e_forca_ano(app, planilha_sintetica):
     assert {l.data.isoformat() for l in lancs} == {"2026-01-01", "2026-01-02"}
 
 
+def test_importer_ignora_celula_texto(app, tmp_path):
+    """Célula digitada como TEXTO ("284.87") não deve ser importada.
+
+    A planilha (como o Excel) ignora texto nas somas; importá-lo divergiria
+    o saldo. Caso real: Umehara/24-06 na planilha do Bangalô.
+    """
+    seed_setores_funcoes()
+    seed_plano_contas()
+    db.session.commit()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "2026"
+    ws.cell(row=1, column=3, value=datetime(2024, 6, 1))
+    ws.cell(row=1, column=4, value=datetime(2024, 6, 2))
+    ws.cell(row=2, column=2, value="Saldo Inicial")
+    ws.cell(row=2, column=3, value=1000)
+    ws.cell(row=2, column=4, value=1000)
+    ws.cell(row=4, column=2, value="Visa Crédito")
+    ws.cell(row=4, column=3, value=100)      # número -> entra
+    ws.cell(row=4, column=4, value="284.87")  # TEXTO -> deve ser ignorado
+    caminho = tmp_path / "texto.xlsx"
+    wb.save(caminho)
+
+    fluxo_importer.importar(caminho)
+    db.session.commit()
+
+    lancs = db.session.query(Lancamento).all()
+    assert len(lancs) == 1
+    assert lancs[0].valor == Decimal("100.00")
+
+
 def test_importer_pula_29_02(app, tmp_path):
     seed_setores_funcoes()
     seed_plano_contas()
