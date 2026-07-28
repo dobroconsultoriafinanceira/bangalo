@@ -74,6 +74,12 @@ class Lancamento(db.Model):
     """Coração do fluxo de caixa: cada célula preenchida da planilha é uma linha."""
 
     __tablename__ = "lancamento"
+    __table_args__ = (
+        # dedupe de importações externas: um mesmo id de origem não duplica.
+        # (SQLite/Postgres permitem múltiplos NULL, então lançamentos manuais
+        #  com origem_id NULL não conflitam entre si.)
+        UniqueConstraint("origem", "origem_id", name="uq_lancamento_origem"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     data: Mapped[date] = mapped_column(Date, nullable=False, index=True)
@@ -83,6 +89,9 @@ class Lancamento(db.Model):
     valor: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     descricao: Mapped[str | None] = mapped_column(String(255))
     usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
+    # procedência do lançamento: "manual", "importacao", "stone", ...
+    origem: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
+    origem_id: Mapped[str | None] = mapped_column(String(80))  # id da transação na origem
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False

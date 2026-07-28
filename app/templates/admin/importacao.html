@@ -37,4 +37,50 @@
     <p>Integração com o PDV F-Rest fica como etapa futura (adapter isolado, sem carga automática agora).</p>
   </div>
 </div>
+
+<!-- Integração Stone -->
+<div class="bg-white rounded-2xl border border-borda p-6 max-w-2xl mt-6">
+  <div class="flex items-center gap-2 mb-1">
+    <h2 class="text-lg font-semibold">Integração Stone (Conciliação)</h2>
+    {% if stone_configurada %}
+      <span class="px-2 py-0.5 rounded-full text-xs bg-green-50 text-ok border border-green-200">credenciais ativas</span>
+    {% else %}
+      <span class="px-2 py-0.5 rounded-full text-xs bg-amber-50 text-alerta border border-amber-200">sem credenciais</span>
+    {% endif %}
+  </div>
+  <p class="text-xs text-gray-500 mb-4">
+    Importa as entradas por bandeira (Visa, Master, ELO, Amex, débitos, PIX) direto da conciliação Stone.
+    Idempotente: reimportar o mesmo período atualiza, não duplica.
+  </p>
+
+  <!-- Sincronizar por período (API) -->
+  <form method="post" action="{{ url_for('admin.stone_sincronizar') }}" class="flex flex-wrap items-end gap-3 text-sm mb-5">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div>
+      <label class="block text-xs text-gray-500 mb-1">Início</label>
+      <input type="date" name="inicio" required class="rounded-lg border border-borda px-2 py-1.5">
+    </div>
+    <div>
+      <label class="block text-xs text-gray-500 mb-1">Fim</label>
+      <input type="date" name="fim" required class="rounded-lg border border-borda px-2 py-1.5">
+    </div>
+    <button class="px-4 py-1.5 rounded-lg bg-bangalo-500 text-white {{ '' if stone_configurada else 'opacity-60' }}">
+      Sincronizar pela API
+    </button>
+    {% if not stone_configurada %}
+      <span class="text-xs text-alerta">configure as chaves STONE_* no .env</span>
+    {% endif %}
+  </form>
+
+  <!-- Upload de CSV exportado -->
+  <form method="post" action="{{ url_for('admin.stone_csv') }}" enctype="multipart/form-data"
+        class="flex flex-wrap items-end gap-3 text-sm border-t border-borda pt-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div>
+      <label class="block text-xs text-gray-500 mb-1">Ou envie o CSV de conciliação exportado</label>
+      <input type="file" name="arquivo" accept=".csv" required class="text-sm border border-borda rounded-lg px-3 py-2">
+    </div>
+    <button class="px-4 py-1.5 rounded-lg border border-bangalo-500 text-bangalo-600 hover:bg-bangalo-50">Importar CSV</button>
+  </form>
+</div>
 {% endblock %}

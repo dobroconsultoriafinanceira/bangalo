@@ -48,6 +48,14 @@ class BaseConfig:
     LOGIN_MAX_TENTATIVAS = 5
     LOGIN_JANELA_MINUTOS = 15
 
+    # Integração Stone (Conciliação) — credenciais atreladas ao Stone Code
+    STONE_BASE_URL = os.environ.get("STONE_BASE_URL", "")
+    STONE_CLIENT_APPLICATION_KEY = os.environ.get("STONE_CLIENT_APPLICATION_KEY", "")
+    STONE_SECRET_KEY = os.environ.get("STONE_SECRET_KEY", "")
+    STONE_CODES = os.environ.get("STONE_CODES", "")  # separados por vírgula
+    # registrar a taxa (MDR) como saída em Despesas Bancárias?
+    STONE_LANCAR_TAXA = _bool_env("STONE_LANCAR_TAXA", "false")
+
 
 class DevelopmentConfig(BaseConfig):
     DEBUG = True

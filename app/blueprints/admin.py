@@ -121,7 +121,77 @@ def importacao():
             flash(linha, "success")
         return redirect(url_for("admin.importacao"))
 
-    return render_template("admin/importacao.html")
+    from app.importers.stone_adapter import StoneConfig
+
+    stone_config = StoneConfig.from_app(current_app)
+    return render_template("admin/importacao.html", stone_configurada=stone_config.configurada)
+
+
+@bp.route("/stone/csv", methods=["POST"])
+@role_required("consultoria")
+def stone_csv():
+    """Importa um CSV de conciliação Stone exportado (upload manual)."""
+    from flask_login import current_user
+
+    from app.services import stone_import
+
+    arquivo = request.files.get("arquivo")
+    if not arquivo or not arquivo.filename:
+        flash("Selecione o arquivo CSV da conciliação Stone.", "error")
+        return redirect(url_for("admin.importacao"))
+    if Path(arquivo.filename).suffix.lower() != ".csv":
+        flash("O arquivo de conciliação Stone deve ser .csv.", "error")
+        return redirect(url_for("admin.importacao"))
+
+    try:
+        rel = stone_import.importar_arquivo_csv(arquivo.read(), usuario_id=current_user.id)
+    except Exception as exc:  # noqa: BLE001
+        current_app.logger.exception("Falha na importação Stone (CSV)")
+        flash(f"Falha ao importar conciliação Stone: {exc}", "error")
+        return redirect(url_for("admin.importacao"))
+
+    db.session.commit()
+    flash(
+        f"Stone: {rel['inseridos']} novos, {rel['atualizados']} atualizados "
+        f"({rel['lancamentos_gerados']} de {rel['transacoes_recebidas']} transações).",
+        "success",
+    )
+    if rel["ignorados_sem_categoria"]:
+        flash(f"{rel['ignorados_sem_categoria']} transações sem categoria correspondente.", "warning")
+    return redirect(url_for("admin.importacao"))
+
+
+@bp.route("/stone/sincronizar", methods=["POST"])
+@role_required("consultoria")
+def stone_sincronizar():
+    """Baixa a conciliação Stone de um período pela API (exige credenciais)."""
+    from datetime import date
+
+    from flask_login import current_user
+
+    from app.services import stone_import
+
+    inicio = request.form.get("inicio")
+    fim = request.form.get("fim")
+    if not inicio or not fim:
+        flash("Informe início e fim do período.", "error")
+        return redirect(url_for("admin.importacao"))
+
+    try:
+        rel = stone_import.importar_periodo(
+            date.fromisoformat(inicio), date.fromisoformat(fim), usuario_id=current_user.id
+        )
+    except (RuntimeError, NotImplementedError) as exc:
+        flash(str(exc), "warning")
+        return redirect(url_for("admin.importacao"))
+    except Exception as exc:  # noqa: BLE001
+        current_app.logger.exception("Falha na sincronização Stone")
+        flash(f"Falha na sincronização Stone: {exc}", "error")
+        return redirect(url_for("admin.importacao"))
+
+    db.session.commit()
+    flash(f"Stone: {rel['inseridos']} novos, {rel['atualizados']} atualizados.", "success")
+    return redirect(url_for("admin.importacao"))
 
 
 def _executar_importer(tipo: str, caminho: Path) -> list[str]:

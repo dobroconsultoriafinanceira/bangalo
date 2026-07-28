@@ -34,3 +34,39 @@ def registrar_cli(app):
         for linha in relatorio:
             click.echo("  " + linha)
         click.echo(f"Importação '{tipo}' concluída.")
+
+    @app.cli.command("stone-importar")
+    @click.argument("inicio")  # AAAA-MM-DD
+    @click.argument("fim")     # AAAA-MM-DD
+    def stone_importar(inicio, fim):
+        """Baixa a conciliação Stone do período e importa como entradas.
+
+        Ex.: flask stone-importar 2026-07-01 2026-07-15
+        Exige STONE_* configurados no .env.
+        """
+        from datetime import date
+
+        from app.extensions import db
+        from app.services import stone_import
+
+        rel = stone_import.importar_periodo(
+            date.fromisoformat(inicio), date.fromisoformat(fim)
+        )
+        db.session.commit()
+        for k, v in rel.items():
+            click.echo(f"  {k}: {v}")
+        click.echo("Importação Stone concluída.")
+
+    @app.cli.command("stone-importar-csv")
+    @click.argument("caminho", type=click.Path(exists=True))
+    def stone_importar_csv(caminho):
+        """Importa um CSV de conciliação Stone já exportado."""
+        from app.extensions import db
+        from app.services import stone_import
+
+        with open(caminho, "rb") as fh:
+            rel = stone_import.importar_arquivo_csv(fh.read())
+        db.session.commit()
+        for k, v in rel.items():
+            click.echo(f"  {k}: {v}")
+        click.echo("Importação Stone (CSV) concluída.")

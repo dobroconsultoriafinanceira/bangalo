@@ -129,6 +129,52 @@ Integração com o PDV **F-Rest** fica como etapa futura — há um adapter isol
 (`importers/frest_adapter.py`) para importação de CSV/Excel exportado, sem
 acoplar o sistema agora.
 
+## Integração Stone (Conciliação)
+
+Importa as **entradas por bandeira** (Visa, Master, ELO, Amex, débitos, PIX)
+direto da conciliação Stone, substituindo o lançamento manual dessas linhas.
+
+**Arquitetura** (`importers/stone_adapter.py` + `services/stone_import.py`):
+- `TransacaoStone` normaliza a transação (id, data, bandeira, produto, bruto,
+  líquido, taxa, status), independente do layout do arquivo.
+- `to_lancamentos()` é o transform **puro e testado**: mapeia bandeira/produto
+  para a categoria do plano de contas e gera a entrada pelo **valor bruto**.
+- Import **idempotente**: cada lançamento guarda `origem='stone'` +
+  `origem_id` (id da transação). Reimportar o mesmo período **atualiza**, não
+  duplica.
+- Taxa (MDR): opcional. Com `STONE_LANCAR_TAXA=true`, a taxa vira uma saída em
+  "Despesas Bancárias".
+
+**Como usar no sistema:**
+- Tela **Admin › Importação › Integração Stone**: sincronizar por período
+  (API) ou enviar um CSV de conciliação exportado.
+- CLI:
+  ```bash
+  flask stone-importar 2026-07-01 2026-07-15      # via API (precisa das chaves)
+  flask stone-importar-csv conciliacao_julho.csv  # via arquivo exportado
+  ```
+
+**Passo a passo para habilitar a conta da cliente:**
+1. **Solicitar as credenciais à Stone.** A cliente (ou a consultoria, com
+   procuração) pede no [Dev Center Stone](https://www.stone.com.br/devcenter) /
+   Portal de Conciliação a habilitação da **API de Conciliação**, atrelando o(s)
+   **Stone Code(s)** da loja às credenciais (`ClientApplicationKey` +
+   `SecretKey`). Se a loja já usa um conciliador terceiro, pedir à Stone a
+   associação do Stone Code.
+2. **Preencher o `.env`** com `STONE_BASE_URL`, `STONE_CLIENT_APPLICATION_KEY`,
+   `STONE_SECRET_KEY` e `STONE_CODES` (os Stone Codes, separados por vírgula).
+3. **Confirmar o layout com um arquivo real.** Baixar um arquivo de conciliação
+   de exemplo (Layout 2.2/2.4) e ajustar `COLUNAS`/`baixar_dia` no
+   `stone_adapter.py` aos nomes/endpoint reais (a camada de rede e o parser são
+   os únicos pontos que dependem do arquivo real; o transform e a importação já
+   estão prontos e testados).
+4. **Decidir bruto × taxa** com a consultoria: manter só a entrada bruta
+   (padrão) ou também lançar a taxa como saída (`STONE_LANCAR_TAXA=true`).
+5. **Rodar** por um período de teste e conferir contra o extrato Stone.
+
+> A Stone cobre a parte de **cartão/PIX Stone**. Dinheiro, iFood, 99Food e PIX
+> fora da Stone continuam vindo de outra fonte (F-Rest/manual).
+
 ## Testes
 
 ```bash
