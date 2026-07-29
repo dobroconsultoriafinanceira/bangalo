@@ -175,6 +175,45 @@ direto da conciliação Stone, substituindo o lançamento manual dessas linhas.
 > A Stone cobre a parte de **cartão/PIX Stone**. Dinheiro, iFood, 99Food e PIX
 > fora da Stone continuam vindo de outra fonte (F-Rest/manual).
 
+## Integração Itaú PJ (scaffold)
+
+Estrutura pronta para consumir a **API direta do Itaú** (saldo, extrato,
+cartões e investimentos) e **conciliar** com o fluxo. A lógica reutilizável já
+está pronta e testada; só a camada de rede/certificados pluga quando as
+credenciais existirem.
+
+- `importers/itau_adapter.py`: `ItauConfig` (env), `ItauClient` (OAuth2
+  client_credentials + mTLS, com erro explícito enquanto não há credenciais) e
+  **normalizadores puros** (`normalizar_extrato`, `normalizar_saldo`,
+  `normalizar_cartao`) que convertem o JSON do Itaú nas estruturas
+  `TransacaoBancaria` / `SaldoConta` / `LancamentoCartao` /
+  `PosicaoInvestimento`.
+- `services/conciliacao_bancaria.py`: motor **puro** que casa transações do
+  banco com lançamentos do fluxo por tipo + valor + data (janela de
+  tolerância), separando *conciliado / só no banco / só no fluxo*.
+- CLI: `flask itau-sincronizar 2026-07-01 2026-07-15` (informa se faltam
+  credenciais).
+
+**Passo a passo para habilitar (com o gerente Itaú):**
+1. **Acessar o portal** [developer.itau.com.br](https://developer.itau.com.br) e,
+   com apoio do gerente PJ, solicitar acesso às APIs desejadas (extrato/saldo,
+   cartões, investimentos). O consumo dos dados da própria conta exige
+   **consentimento** do titular (LGPD).
+2. **Gerar as credenciais e o certificado**: `client_id` + `client_secret` e o
+   **certificado mTLS** da aplicação (certificado + chave privada).
+3. **Instalar os certificados** na VPS (fora do repositório) e preencher o
+   `.env`: `ITAU_BASE_URL`, `ITAU_CLIENT_ID`, `ITAU_CLIENT_SECRET`,
+   `ITAU_CERT_PATH`, `ITAU_KEY_PATH`, `ITAU_SCOPES`, `ITAU_CONTAS`.
+4. **Confirmar os endpoints e o formato** com a documentação do portal e um
+   retorno real: ajustar as URLs em `ItauClient` e o mapeamento de campos nos
+   `normalizar_*` (único ponto que depende do payload real).
+5. **Rodar** um período de teste e conferir a conciliação contra o extrato.
+
+> Alternativa mais rápida (se o acesso direto demorar): um **agregador de Open
+> Finance** (Pluggy/Belvo/TecnoSpeed) entrega saldo/extrato/cartão/investimento
+> por uma API única — bastaria um segundo adapter no mesmo padrão, reusando o
+> motor de conciliação.
+
 ## Testes
 
 ```bash

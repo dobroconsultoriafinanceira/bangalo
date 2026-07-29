@@ -70,3 +70,28 @@ def registrar_cli(app):
         for k, v in rel.items():
             click.echo(f"  {k}: {v}")
         click.echo("Importação Stone (CSV) concluída.")
+
+    @app.cli.command("itau-sincronizar")
+    @click.argument("inicio")  # AAAA-MM-DD
+    @click.argument("fim")     # AAAA-MM-DD
+    def itau_sincronizar(inicio, fim):
+        """Sincroniza extrato Itaú do período (exige credenciais/certificado).
+
+        Scaffold: a estrutura está pronta; a chamada real é habilitada quando
+        os certificados mTLS e client_id/secret estiverem no .env.
+        """
+        from datetime import date
+
+        from app.importers.itau_adapter import ItauClient, ItauConfig
+
+        cfg = ItauConfig.from_app(app)
+        if not cfg.configurada:
+            click.echo("Credenciais Itaú ausentes — configure ITAU_* no .env (ver README).")
+            return
+        client = ItauClient(cfg)
+        try:
+            for conta in cfg.contas or [""]:
+                txns = client.extrato(conta, date.fromisoformat(inicio), date.fromisoformat(fim))
+                click.echo(f"  conta {conta}: {len(txns)} transações")
+        except (RuntimeError, NotImplementedError) as exc:
+            click.echo(f"  {exc}")

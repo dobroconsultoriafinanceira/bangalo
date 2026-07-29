@@ -56,6 +56,15 @@ class BaseConfig:
     # registrar a taxa (MDR) como saída em Despesas Bancárias?
     STONE_LANCAR_TAXA = _bool_env("STONE_LANCAR_TAXA", "false")
 
+    # Integração Itaú PJ (API direta) — OAuth2 client_credentials + mTLS
+    ITAU_BASE_URL = os.environ.get("ITAU_BASE_URL", "")
+    ITAU_CLIENT_ID = os.environ.get("ITAU_CLIENT_ID", "")
+    ITAU_CLIENT_SECRET = os.environ.get("ITAU_CLIENT_SECRET", "")
+    ITAU_CERT_PATH = os.environ.get("ITAU_CERT_PATH", "")  # certificado mTLS
+    ITAU_KEY_PATH = os.environ.get("ITAU_KEY_PATH", "")    # chave privada
+    ITAU_SCOPES = os.environ.get("ITAU_SCOPES", "")
+    ITAU_CONTAS = os.environ.get("ITAU_CONTAS", "")        # contas, separadas por vírgula
+
 
 class DevelopmentConfig(BaseConfig):
     DEBUG = True
