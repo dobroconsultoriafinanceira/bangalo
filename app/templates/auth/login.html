@@ -4,20 +4,23 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Entrar · Bangalô Financeiro</title>
-  <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+  <link rel="icon" href="{{ url_for('static', filename='img/favicon.png') }}" type="image/png">
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
-  <style>body{font-family:Inter,sans-serif;background:#FAF7F2}</style>
+  <style>
+    body{font-family:Inter,sans-serif;background:#FAF7F2}
+    .brand-ring{--tw-ring-color:#CD5C27}
+  </style>
 </head>
 <body class="min-h-screen flex items-center justify-center px-4">
   <div class="w-full max-w-sm">
     <div class="text-center mb-8">
-      <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="Bangalô" class="h-14 mx-auto"
+      <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Bangalô" class="h-16 mx-auto"
            onerror="this.style.display='none';document.getElementById('wm').style.display='block'">
       <p id="wm" style="display:none;font-family:Poppins" class="text-4xl font-bold lowercase" >
-        <span style="color:#CC5B2A">bangal</span><span style="color:#6B3A1E">ô</span>
+        <span style="color:#CD5C27">bangal</span><span style="color:#6F2F13">o</span>
       </p>
-      <p class="text-sm text-gray-500 mt-2">Dashboard financeiro · Dobro Consultoria</p>
+      <p class="text-sm text-gray-500 mt-3">Dashboard financeiro · Dobro Consultoria</p>
     </div>
 
     {% with mensagens = get_flashed_messages(with_categories=true) %}
@@ -35,15 +38,15 @@
         <label for="email" class="block text-sm font-medium mb-1">E-mail</label>
         <input id="email" name="email" type="email" required autofocus autocomplete="username"
                class="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
-               style="border-color:#E7E1D8; --tw-ring-color:#CC5B2A">
+               style="border-color:#E7E1D8; --tw-ring-color:#CD5C27">
       </div>
       <div>
         <label for="senha" class="block text-sm font-medium mb-1">Senha</label>
         <input id="senha" name="senha" type="password" required autocomplete="current-password"
                class="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
-               style="border-color:#E7E1D8; --tw-ring-color:#CC5B2A">
+               style="border-color:#E7E1D8; --tw-ring-color:#CD5C27">
       </div>
-      <button class="w-full py-2.5 rounded-lg text-white font-medium text-sm hover:opacity-90" style="background:#CC5B2A">
+      <button class="w-full py-2.5 rounded-lg text-white font-medium text-sm hover:opacity-90" style="background:#CD5C27">
         Entrar
       </button>
       <p class="text-center text-xs">

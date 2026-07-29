@@ -100,7 +100,7 @@ fetch('{{ url_for("dashboard.api_metas_anual", ano=hoje.year) }}')
         labels: MESES,
         datasets: [
           { label: 'Meta', data: dados.map(d => d.meta), backgroundColor: '#E7E1D8', borderRadius: 4 },
-          { label: 'Realizado', data: dados.map(d => d.realizado), backgroundColor: '#CC5B2A', borderRadius: 4 },
+          { label: 'Realizado', data: dados.map(d => d.realizado), backgroundColor: '#CD5C27', borderRadius: 4 },
         ],
       },
       options: {
@@ -121,7 +121,7 @@ fetch('{{ url_for("dashboard.api_fluxo_mensal", ano=hoje.year) }}')
         datasets: [
           { label: 'Entradas', data: dados.map(d => d.entradas), backgroundColor: '#2E7D32', borderRadius: 4 },
           { label: 'Saídas', data: dados.map(d => d.saidas), backgroundColor: '#B3261E', borderRadius: 4 },
-          { label: 'Resultado', data: dados.map(d => d.resultado), type: 'line', borderColor: '#CC5B2A', tension: .3 },
+          { label: 'Resultado', data: dados.map(d => d.resultado), type: 'line', borderColor: '#CD5C27', tension: .3 },
         ],
       },
       options: {

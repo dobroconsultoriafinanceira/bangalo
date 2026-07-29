@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block titulo %}Bangalô{% endblock %} · Bangalô Financeiro</title>
-  <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+  <link rel="icon" href="{{ url_for('static', filename='img/favicon.png') }}" type="image/png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -16,16 +16,16 @@
         extend: {
           colors: {
             bangalo: {
-              50:  '#FDF3EC',
-              100: '#FAE3D3',
-              200: '#F3C3A3',
-              300: '#E99A6A',
-              400: '#DA7440',
-              500: '#CC5B2A',   /* laranja primário */
-              600: '#B34E22',
-              700: '#8F3D1B',
-              800: '#6B3A1E',   /* marrom bolota */
-              900: '#5A3620',
+              50:  '#FBF0E9',
+              100: '#F6DCCB',
+              200: '#EBB595',
+              300: '#E08E60',
+              400: '#D67240',
+              500: '#CD5C27',   /* laranja primário (amostrado do logo) */
+              600: '#B44E20',
+              700: '#8E3D19',
+              800: '#6F2F13',   /* marrom bolota (amostrado do logo) */
+              900: '#5A2610',
             },
             creme: '#FAF7F2',
             tinta: '#2B2B2B',
@@ -56,13 +56,13 @@
   <!-- Sidebar -->
   <aside id="sidebar" class="hidden lg:flex flex-col w-60 shrink-0 bg-white border-r border-borda">
     <div class="px-5 py-5 border-b border-borda">
-      <a href="{{ url_for('dashboard.home') }}" class="flex items-center gap-2">
-        <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="Bangalô"
-             class="h-9" onerror="this.style.display='none';document.getElementById('wordmark').style.display='inline'">
+      <a href="{{ url_for('dashboard.home') }}" class="flex items-center">
+        <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Bangalô"
+             class="h-8 w-auto" onerror="this.style.display='none';document.getElementById('wordmark').style.display='inline-flex'">
         <span id="wordmark" style="display:none"
-              class="font-titulo font-bold text-2xl text-bangalo-500 lowercase tracking-tight">bangal<span class="text-bangalo-800">ô</span></span>
+              class="font-titulo font-bold text-2xl text-bangalo-500 lowercase tracking-tight items-center">bangal<span class="text-bangalo-800">o</span></span>
       </a>
-      <p class="text-[11px] text-gray-400 mt-1">Dobro Consultoria Financeira</p>
+      <p class="text-[11px] text-gray-400 mt-2 tracking-wide">Dobro Consultoria Financeira</p>
     </div>
     <nav class="flex-1 px-3 py-4 space-y-1 text-sm">
       {% set rota = request.endpoint or '' %}
@@ -100,7 +100,7 @@
       <button onclick="document.getElementById('menu-mobile').classList.toggle('hidden')" aria-label="Menu">
         <i data-lucide="menu" class="w-6 h-6 text-bangalo-600"></i>
       </button>
-      <span class="font-titulo font-bold text-xl text-bangalo-500 lowercase">bangal<span class="text-bangalo-800">ô</span></span>
+      <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Bangalô" class="h-7 w-auto">
       <form method="post" action="{{ url_for('auth.logout') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button aria-label="Sair"><i data-lucide="log-out" class="w-5 h-5 text-gray-500"></i></button>
