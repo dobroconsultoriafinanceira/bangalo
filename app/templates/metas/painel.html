@@ -104,33 +104,26 @@
   </table>
 </div>
 
-<div class="bg-white rounded-2xl border border-borda p-5">
-  <h2 class="font-semibold mb-3 text-sm">Meta × Realizado ({{ ano }})</h2>
-  <canvas id="grafico-metas" height="200"></canvas>
+<div class="bg-white rounded-2xl border border-borda p-5 shadow-sm">
+  <div class="flex items-start justify-between gap-3 mb-4">
+    <div>
+      <h2 class="font-titulo font-semibold text-[15px] text-tinta">Meta × Realizado</h2>
+      <p class="text-xs text-gray-400">Comparativo mensal de {{ ano }}</p>
+    </div>
+    <div id="leg-metas" class="flex flex-wrap gap-3 pt-1"></div>
+  </div>
+  <div class="relative h-64"><canvas id="grafico-metas"></canvas></div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/graficos.js') }}"></script>
 <script>
-const brl = v => v == null ? '—' : v.toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
+BangaloCharts.defaults();
 fetch('{{ url_for("dashboard.api_metas_anual", ano=ano) }}')
   .then(r => r.json())
-  .then(dados => {
-    new Chart(document.getElementById('grafico-metas'), {
-      type: 'bar',
-      data: {
-        labels: ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'],
-        datasets: [
-          { label: 'Meta', data: dados.map(d => d.meta), backgroundColor: '#E7E1D8', borderRadius: 4 },
-          { label: 'Realizado', data: dados.map(d => d.realizado), backgroundColor: '#CD5C27', borderRadius: 4 },
-        ],
-      },
-      options: {
-        plugins: { tooltip: { callbacks: { label: c => `${c.dataset.label}: ${brl(c.raw)}` } } },
-        scales: { y: { ticks: { callback: v => brl(v) } } },
-      },
-    });
-  });
+  .then(dados => BangaloCharts.metaVsRealizado(
+    document.getElementById('grafico-metas'), document.getElementById('leg-metas'), dados));
 </script>
 {% endblock %}
