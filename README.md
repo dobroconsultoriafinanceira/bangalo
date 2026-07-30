@@ -175,6 +175,44 @@ direto da conciliação Stone, substituindo o lançamento manual dessas linhas.
 > A Stone cobre a parte de **cartão/PIX Stone**. Dinheiro, iFood, 99Food e PIX
 > fora da Stone continuam vindo de outra fonte (F-Rest/manual).
 
+## Sincronização automática com o Google Sheets (fluxo)
+
+O fluxo de caixa pode se manter atualizado a partir da planilha do Google
+(preenchida diariamente), **sem digitação no sistema**. O servidor lê a
+planilha com uma **conta de serviço** (só leitura) e reimporta o fluxo:
+
+- **Automático:** a cada `GOOGLE_SYNC_INTERVAL_MIN` minutos (padrão 15), via
+  APScheduler, quando `GOOGLE_SYNC_ENABLED=true`.
+- **Manual:** botão **"Sincronizar agora"** em *Admin › Importação* (mostra a
+  hora da última sincronização). Também via `flask google-sincronizar`.
+
+Import idempotente e resiliente: substitui os lançamentos de 2026 e detecta o
+layout pelos rótulos (imune a inserção de linhas na planilha).
+
+**Passo a passo para habilitar (uma vez):**
+1. No [Google Cloud Console](https://console.cloud.google.com), crie um projeto
+   e **habilite a Google Drive API**.
+2. Crie uma **Conta de Serviço** e gere uma **chave JSON**. Guarde o arquivo na
+   VPS **fora do repositório** (ex.: `/srv/bangalo/secrets/gsa.json`).
+3. Copie o **e-mail da conta de serviço** (algo como
+   `bangalo-sync@projeto.iam.gserviceaccount.com`) e, na planilha do Google,
+   **Compartilhar → Leitor** com esse e-mail.
+4. No `.env`:
+   ```
+   GOOGLE_SYNC_ENABLED=true
+   GOOGLE_SERVICE_ACCOUNT_JSON=/srv/bangalo/secrets/gsa.json
+   GOOGLE_SHEETS_FLUXO_ID=1COW3BTVTLIosPCtobxNvDxLm6wt45AieTV6UzB33XV0
+   GOOGLE_SYNC_INTERVAL_MIN=15
+   ```
+5. Reinicie o `web`. Confira em *Admin › Importação* (selo "conectada") e clique
+   em "Sincronizar agora".
+
+> **Múltiplos workers:** rode o agendador em **um** processo (ex.: um serviço
+> `web` com `--workers 1` dedicado, ou um container só para o scheduler). O
+> sync é idempotente e tem guarda de intervalo, mas evite N workers disparando
+> em paralelo. A conta de serviço tem acesso **somente leitura** — o sistema
+> nunca edita nem apaga a planilha.
+
 ## Integração Itaú PJ (scaffold)
 
 Estrutura pronta para consumir a **API direta do Itaú** (saldo, extrato,

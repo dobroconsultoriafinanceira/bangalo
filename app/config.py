@@ -40,6 +40,12 @@ class BaseConfig:
     # Jobs agendados
     SCHEDULER_ENABLED = _bool_env("SCHEDULER_ENABLED", "false")
 
+    # Sincronização automática do fluxo com o Google Sheets (só leitura)
+    GOOGLE_SYNC_ENABLED = _bool_env("GOOGLE_SYNC_ENABLED", "false")
+    GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+    GOOGLE_SHEETS_FLUXO_ID = os.environ.get("GOOGLE_SHEETS_FLUXO_ID", "")
+    GOOGLE_SYNC_INTERVAL_MIN = int(os.environ.get("GOOGLE_SYNC_INTERVAL_MIN", "15"))
+
     # Upload de planilhas: só .xlsx/.csv, no máximo 20 MB
     MAX_CONTENT_LENGTH = 20 * 1024 * 1024
     UPLOAD_EXTENSOES = {".xlsx", ".csv"}

@@ -95,8 +95,8 @@ def create_app(config_name: str | None = None) -> Flask:
     def erro_interno(_e):
         return render_template("erro.html", codigo=500, mensagem="Erro interno. Tente novamente."), 500
 
-    # --- scheduler opcional (backup/importação) ---
-    if app.config.get("SCHEDULER_ENABLED"):
+    # --- scheduler opcional (backup e/ou sync Google) ---
+    if app.config.get("SCHEDULER_ENABLED") or app.config.get("GOOGLE_SYNC_ENABLED"):
         from app.utils.agendador import iniciar_agendador
 
         iniciar_agendador(app)

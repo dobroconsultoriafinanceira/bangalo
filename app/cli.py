@@ -71,6 +71,16 @@ def registrar_cli(app):
             click.echo(f"  {k}: {v}")
         click.echo("Importação Stone (CSV) concluída.")
 
+    @app.cli.command("google-sincronizar")
+    def google_sincronizar():
+        """Sincroniza o fluxo com a planilha do Google (Service Account)."""
+        from app.services import google_sync
+
+        rel = google_sync.sincronizar_fluxo(app, forcar=True)
+        for linha in rel.get("relatorio", []):
+            click.echo("  " + linha)
+        click.echo("OK" if rel.get("ok") else "Não sincronizado.")
+
     @app.cli.command("itau-sincronizar")
     @click.argument("inicio")  # AAAA-MM-DD
     @click.argument("fim")     # AAAA-MM-DD

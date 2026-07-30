@@ -122,9 +122,39 @@ def importacao():
         return redirect(url_for("admin.importacao"))
 
     from app.importers.stone_adapter import StoneConfig
+    from app.services import google_sync
 
     stone_config = StoneConfig.from_app(current_app)
-    return render_template("admin/importacao.html", stone_configurada=stone_config.configurada)
+    return render_template(
+        "admin/importacao.html",
+        stone_configurada=stone_config.configurada,
+        google_configurado=google_sync.configurado(current_app),
+        google_ativo=current_app.config.get("GOOGLE_SYNC_ENABLED"),
+        google_intervalo=current_app.config.get("GOOGLE_SYNC_INTERVAL_MIN", 15),
+        google_ultima_sync=google_sync.ultima_sincronizacao(),
+    )
+
+
+@bp.route("/google/sincronizar", methods=["POST"])
+@role_required("consultoria")
+def google_sincronizar():
+    """Botão 'Sincronizar agora': puxa a planilha do Google e reimporta o fluxo."""
+    from app.services import google_sync
+
+    try:
+        rel = google_sync.sincronizar_fluxo(current_app, forcar=True)
+    except Exception as exc:  # noqa: BLE001
+        current_app.logger.exception("Falha na sincronização Google")
+        flash(f"Falha na sincronização com o Google: {exc}", "error")
+        return redirect(url_for("admin.importacao"))
+
+    if not rel.get("ok"):
+        flash(rel["relatorio"][0], "warning")
+    else:
+        flash("Fluxo sincronizado com a planilha do Google.", "success")
+        for linha in rel.get("relatorio", []):
+            flash(linha, "success")
+    return redirect(url_for("admin.importacao"))
 
 
 @bp.route("/stone/csv", methods=["POST"])

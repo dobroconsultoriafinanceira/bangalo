@@ -38,6 +38,35 @@
   </div>
 </div>
 
+<!-- Sincronização Google Sheets (fluxo) -->
+<div class="bg-white rounded-2xl border border-borda p-6 max-w-2xl mt-6">
+  <div class="flex items-center gap-2 mb-1">
+    <h2 class="text-lg font-semibold">Sincronização automática (Google Sheets)</h2>
+    {% if google_configurado %}
+      <span class="px-2 py-0.5 rounded-full text-xs bg-green-50 text-ok border border-green-200">conectada</span>
+    {% else %}
+      <span class="px-2 py-0.5 rounded-full text-xs bg-amber-50 text-alerta border border-amber-200">não configurada</span>
+    {% endif %}
+    {% if google_ativo %}
+      <span class="px-2 py-0.5 rounded-full text-xs bg-bangalo-50 text-bangalo-700">auto a cada {{ google_intervalo }} min</span>
+    {% endif %}
+  </div>
+  <p class="text-xs text-gray-500 mb-4">
+    Puxa a planilha de fluxo do Google (só leitura) e atualiza os lançamentos de 2026.
+    Última sincronização:
+    <strong>{{ google_ultima_sync | data('%d/%m/%Y %H:%M') if google_ultima_sync else 'nunca' }}</strong>.
+  </p>
+  <form method="post" action="{{ url_for('admin.google_sincronizar') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="px-4 py-1.5 rounded-lg bg-bangalo-500 text-white text-sm hover:bg-bangalo-600 {{ '' if google_configurado else 'opacity-60' }}">
+      Sincronizar agora
+    </button>
+    {% if not google_configurado %}
+      <span class="text-xs text-alerta ml-2">configure a conta de serviço (ver README)</span>
+    {% endif %}
+  </form>
+</div>
+
 <!-- Integração Stone -->
 <div class="bg-white rounded-2xl border border-borda p-6 max-w-2xl mt-6">
   <div class="flex items-center gap-2 mb-1">
