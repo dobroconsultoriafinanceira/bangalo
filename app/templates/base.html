@@ -47,6 +47,40 @@
     h1, h2, h3, .font-titulo { font-family: 'Poppins', sans-serif; }
     .num { font-variant-numeric: tabular-nums; text-align: right; }
     [x-cloak] { display: none; }
+
+    /* ── Spring animations (transitions.dev spirit) ── */
+    @keyframes springUp {
+      0%   { opacity: 0; transform: translateY(18px) scale(.98); }
+      65%  { opacity: 1; transform: translateY(-3px) scale(1.005); }
+      100% { opacity: 1; transform: none; }
+    }
+    @keyframes springFade {
+      from { opacity: 0; } to { opacity: 1; }
+    }
+    .s-in   { animation: springUp  .55s cubic-bezier(.34,1.56,.64,1) both; }
+    .s-fade { animation: springFade .4s ease both; }
+    /* stagger delays — add .d1 .. .d8 alongside .s-in */
+    .d1{animation-delay:.04s}.d2{animation-delay:.10s}.d3{animation-delay:.16s}
+    .d4{animation-delay:.22s}.d5{animation-delay:.28s}.d6{animation-delay:.34s}
+    .d7{animation-delay:.40s}.d8{animation-delay:.46s}
+    /* spring hover — cards levantam com mola */
+    .s-hover {
+      transition: transform .22s cubic-bezier(.34,1.56,.64,1),
+                  box-shadow .22s ease;
+    }
+    .s-hover:hover { transform: translateY(-3px); box-shadow: 0 14px 36px -12px rgba(90,38,16,.22); }
+    /* links e botões: fade suave */
+    a, button { transition: opacity .15s ease, background-color .15s ease, color .15s ease; }
+    /* delta badges */
+    .delta-up   { color: #2E7D32; background: #E8F5E9; }
+    .delta-down { color: #B3261E; background: #FDECEA; }
+    .delta-badge { display:inline-flex; align-items:center; gap:3px;
+                   font-size:11px; font-weight:600; padding:2px 7px;
+                   border-radius:999px; letter-spacing:.02em; }
+    @media (prefers-reduced-motion: reduce) {
+      .s-in, .s-fade { animation: none; }
+      .s-hover { transition: none; }
+    }
   </style>
   {% block head_extra %}{% endblock %}
 </head>
@@ -132,7 +166,7 @@
       {% endif %}
     {% endwith %}
 
-    <main class="flex-1 px-4 lg:px-8 py-6">
+    <main class="flex-1 px-4 lg:px-8 py-6 s-fade">
       {% block conteudo %}{% endblock %}
     </main>
   </div>

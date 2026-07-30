@@ -144,5 +144,44 @@
     });
   }
 
-  window.BangaloCharts = { defaults, metaVsRealizado, fluxoMensal, brl, brlCompacto };
+  // ---- Donut: despesas por grupo ----
+  function donutDespesas(canvas, legendaEl, dados) {
+    if (!dados || !dados.length) return;
+    const cores = [MARCA, "#E08E60", "#CBB9A8", "#8E3D19", "#B3261E", "#D4C4B5"];
+    if (legendaEl) {
+      legendaEl.innerHTML = dados.map((d, i) =>
+        `<span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#6B6B6B">
+          <span style="width:8px;height:8px;border-radius:50%;background:${cores[i % cores.length]};display:inline-block;flex-shrink:0"></span>
+          <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px">${d.grupo}</span>
+        </span>`
+      ).join("");
+    }
+    return new Chart(canvas, {
+      type: "doughnut",
+      data: {
+        labels: dados.map((d) => d.grupo),
+        datasets: [{
+          data: dados.map((d) => d.total),
+          backgroundColor: cores,
+          borderWidth: 2,
+          borderColor: "#FAF7F2",
+          hoverOffset: 8,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        cutout: "66%",
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            ...tooltip,
+            callbacks: { label: (c) => "  " + c.label + ": " + brl(c.raw) },
+          },
+        },
+        animation: { duration: 700, easing: "easeOutQuart" },
+      },
+    });
+  }
+
+  window.BangaloCharts = { defaults, metaVsRealizado, fluxoMensal, donutDespesas, brl, brlCompacto };
 })();

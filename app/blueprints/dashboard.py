@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Dashboard consolidado + endpoints JSON dos gráficos (Chart.js)."""
+import json
 from datetime import timedelta
 from decimal import Decimal
 
@@ -15,6 +16,13 @@ from app.utils.datas import hoje_sp, primeiro_dia_mes, ultimo_dia_mes
 bp = Blueprint("dashboard", __name__)
 
 
+def _delta_pct(atual: Decimal, anterior: Decimal):
+    """Variação percentual vs período anterior; None se sem base."""
+    if not anterior:
+        return None
+    return float((atual - anterior) / anterior * 100)
+
+
 @bp.route("/")
 @login_required
 def home():
@@ -25,9 +33,20 @@ def home():
     totais_mes = fluxo_srv.totais_por_tipo(inicio_mes, fim_mes)
     saldo_atual = fluxo_srv.saldo_ate(hoje)
 
+    # Mês anterior — para os deltas dos KPIs
+    mes_ant = hoje.month - 1 or 12
+    ano_ant = hoje.year if hoje.month > 1 else hoje.year - 1
+    totais_anterior = fluxo_srv.totais_por_tipo(
+        primeiro_dia_mes(ano_ant, mes_ant),
+        ultimo_dia_mes(ano_ant, mes_ant),
+    )
+
     linha_meta = metas_consultas.tabela_do_ano(hoje.year)[hoje.month - 1]
 
     ranking = fluxo_srv.ranking_despesas(inicio_mes, fim_mes, limite=6)
+    ranking_json = json.dumps(
+        [{"grupo": g, "total": float(t)} for g, t in ranking]
+    )
 
     proxima_quinzena = db.session.execute(
         db.select(PeriodoGorjeta)
@@ -41,8 +60,11 @@ def home():
         saldo_atual=saldo_atual,
         entradas_mes=totais_mes["entrada"],
         saidas_mes=totais_mes["saida"],
+        delta_entradas=_delta_pct(totais_mes["entrada"], totais_anterior["entrada"]),
+        delta_saidas=_delta_pct(totais_mes["saida"], totais_anterior["saida"]),
         linha_meta=linha_meta,
         ranking=ranking,
+        ranking_json=ranking_json,
         proxima_quinzena=proxima_quinzena,
     )
 

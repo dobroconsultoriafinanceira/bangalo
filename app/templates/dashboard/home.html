@@ -1,99 +1,207 @@
 {% extends "base.html" %}
 {% block titulo %}Dashboard{% endblock %}
 {% block conteudo %}
-<div class="flex items-center justify-between mb-6">
+
+{# ── Cabeçalho ── #}
+<div class="s-in flex items-center justify-between mb-6">
   <div>
-    <h1 class="text-2xl font-semibold">Visão geral</h1>
-    <p class="text-sm text-gray-500">{{ hoje | data }} · Restaurante Bangalô</p>
+    <h1 class="font-titulo text-2xl font-semibold text-tinta">Visão geral</h1>
+    <p class="text-sm text-gray-400 mt-0.5">{{ hoje | data }} · Restaurante Bangalô</p>
+  </div>
+  <div class="flex items-center gap-2">
+    <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Bangalô" class="h-8 w-auto opacity-90">
   </div>
 </div>
 
-<!-- Cards -->
-<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
-  <div class="bg-white rounded-2xl border border-borda p-5">
-    <p class="text-xs uppercase tracking-wide text-gray-400">Saldo atual</p>
-    <p class="mt-2 text-2xl font-semibold {{ 'text-erro' if saldo_atual < 0 else '' }}">{{ saldo_atual | brl }}</p>
+{# ── KPIs (4 cards com delta — estilo dashboard-4) ── #}
+{% set resultado_mes = entradas_mes - saidas_mes %}
+<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+
+  {# Saldo atual #}
+  <div class="s-in d1 s-hover bg-white rounded-2xl border border-borda p-5">
+    <div class="flex items-start justify-between gap-2">
+      <p class="text-xs font-medium uppercase tracking-wide text-gray-400">Saldo atual</p>
+      <span class="w-8 h-8 rounded-lg bg-bangalo-50 text-bangalo-500 grid place-items-center shrink-0">
+        <i data-lucide="wallet" class="w-4 h-4"></i>
+      </span>
+    </div>
+    <p class="mt-3 text-2xl font-semibold font-titulo {{ 'text-erro' if saldo_atual < 0 else 'text-tinta' }}">{{ saldo_atual | brl }}</p>
+    <p class="mt-1 text-[11px] text-gray-400">Posição de hoje</p>
   </div>
-  <div class="bg-white rounded-2xl border border-borda p-5">
-    <p class="text-xs uppercase tracking-wide text-gray-400">Entradas do mês</p>
-    <p class="mt-2 text-2xl font-semibold text-ok">{{ entradas_mes | brl }}</p>
+
+  {# Entradas #}
+  <div class="s-in d2 s-hover bg-white rounded-2xl border border-borda p-5">
+    <div class="flex items-start justify-between gap-2">
+      <p class="text-xs font-medium uppercase tracking-wide text-gray-400">Entradas do mês</p>
+      <span class="w-8 h-8 rounded-lg bg-green-50 text-ok grid place-items-center shrink-0">
+        <i data-lucide="trending-up" class="w-4 h-4"></i>
+      </span>
+    </div>
+    <p class="mt-3 text-2xl font-semibold font-titulo text-ok">{{ entradas_mes | brl }}</p>
+    <div class="mt-1 flex items-center gap-1.5">
+      {% if delta_entradas is not none %}
+        {% if delta_entradas >= 0 %}
+          <span class="delta-badge delta-up">
+            <i data-lucide="arrow-up" class="w-3 h-3"></i>{{ "%.1f"|format(delta_entradas) }}%
+          </span>
+        {% else %}
+          <span class="delta-badge delta-down">
+            <i data-lucide="arrow-down" class="w-3 h-3"></i>{{ "%.1f"|format(delta_entradas | abs) }}%
+          </span>
+        {% endif %}
+        <span class="text-[11px] text-gray-400">vs. mês anterior</span>
+      {% else %}
+        <span class="text-[11px] text-gray-400">sem base de comparação</span>
+      {% endif %}
+    </div>
   </div>
-  <div class="bg-white rounded-2xl border border-borda p-5">
-    <p class="text-xs uppercase tracking-wide text-gray-400">Saídas do mês</p>
-    <p class="mt-2 text-2xl font-semibold text-erro">{{ saidas_mes | brl }}</p>
+
+  {# Saídas #}
+  <div class="s-in d3 s-hover bg-white rounded-2xl border border-borda p-5">
+    <div class="flex items-start justify-between gap-2">
+      <p class="text-xs font-medium uppercase tracking-wide text-gray-400">Saídas do mês</p>
+      <span class="w-8 h-8 rounded-lg bg-red-50 text-erro grid place-items-center shrink-0">
+        <i data-lucide="trending-down" class="w-4 h-4"></i>
+      </span>
+    </div>
+    <p class="mt-3 text-2xl font-semibold font-titulo text-erro">{{ saidas_mes | brl }}</p>
+    <div class="mt-1 flex items-center gap-1.5">
+      {% if delta_saidas is not none %}
+        {# saídas: alta é ruim (vermelho), queda é boa (verde) #}
+        {% if delta_saidas > 0 %}
+          <span class="delta-badge delta-down">
+            <i data-lucide="arrow-up" class="w-3 h-3"></i>{{ "%.1f"|format(delta_saidas) }}%
+          </span>
+        {% else %}
+          <span class="delta-badge delta-up">
+            <i data-lucide="arrow-down" class="w-3 h-3"></i>{{ "%.1f"|format(delta_saidas | abs) }}%
+          </span>
+        {% endif %}
+        <span class="text-[11px] text-gray-400">vs. mês anterior</span>
+      {% else %}
+        <span class="text-[11px] text-gray-400">sem base de comparação</span>
+      {% endif %}
+    </div>
   </div>
-  <div class="bg-white rounded-2xl border border-borda p-5">
-    <p class="text-xs uppercase tracking-wide text-gray-400">Meta de {{ hoje.month | nome_mes }}</p>
-    <p class="mt-2 text-2xl font-semibold">
+
+  {# Meta do mês #}
+  <div class="s-in d4 s-hover bg-white rounded-2xl border border-borda p-5">
+    <div class="flex items-start justify-between gap-2">
+      <p class="text-xs font-medium uppercase tracking-wide text-gray-400">Meta de {{ hoje.month | nome_mes }}</p>
+      <span class="w-8 h-8 rounded-lg bg-amber-50 text-alerta grid place-items-center shrink-0">
+        <i data-lucide="target" class="w-4 h-4"></i>
+      </span>
+    </div>
+    <p class="mt-3 text-2xl font-semibold font-titulo">
       {% if linha_meta.pct_meta is not none %}
         <span class="{{ 'text-ok' if linha_meta.pct_meta >= 1 else 'text-alerta' if linha_meta.pct_meta >= 0.9 else 'text-erro' }}">
           {{ linha_meta.pct_meta | pct }}
         </span>
       {% else %}—{% endif %}
     </p>
-    <p class="text-xs text-gray-400 mt-1">
-      {{ linha_meta.realizado | brl }} de {{ linha_meta.meta | brl }}
-    </p>
+    <p class="mt-1 text-[11px] text-gray-400">{{ linha_meta.realizado | brl }} de {{ linha_meta.meta | brl }}</p>
+    {% if linha_meta.pct_meta is not none %}
+    <div class="mt-3 h-1 rounded-full bg-gray-100 overflow-hidden">
+      {% set larg = [(linha_meta.pct_meta * 100)|round(0,'floor'), 100]|min %}
+      <div class="h-full rounded-full transition-all duration-700
+                  {{ 'bg-ok' if linha_meta.pct_meta >= 1 else 'bg-bangalo-500' }}"
+           style="width:{{ larg }}%"></div>
+    </div>
+    {% endif %}
   </div>
 </div>
 
-<!-- Gráficos -->
-<div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
-  <div class="bg-white rounded-2xl border border-borda p-5 shadow-sm">
-    <div class="flex items-start justify-between gap-3 mb-4">
-      <div>
-        <h2 class="font-titulo font-semibold text-[15px] text-tinta">Realizado × Meta</h2>
-        <p class="text-xs text-gray-400">Faturamento mensal de {{ hoje.year }}</p>
-      </div>
-      <div id="leg-metas" class="flex flex-wrap gap-3 pt-1"></div>
+{# ── Gráfico principal — Realizado × Meta (full width, como revenue chart) ── #}
+<div class="s-in d2 s-hover bg-white rounded-2xl border border-borda p-5 shadow-sm mb-6">
+  <div class="flex items-start justify-between gap-4 mb-4">
+    <div>
+      <h2 class="font-titulo font-semibold text-[15px] text-tinta">Realizado × Meta</h2>
+      <p class="text-xs text-gray-400 mt-0.5">Faturamento mensal · {{ hoje.year }}</p>
     </div>
-    <div class="relative h-64"><canvas id="grafico-metas"></canvas></div>
+    <div id="leg-metas" class="flex flex-wrap gap-4 pt-0.5"></div>
   </div>
-  <div class="bg-white rounded-2xl border border-borda p-5 shadow-sm">
-    <div class="flex items-start justify-between gap-3 mb-4">
+  <div class="relative h-64"><canvas id="grafico-metas"></canvas></div>
+</div>
+
+{# ── Linha inferior: Fluxo (2 cols) + Donut despesas (1 col) + Quick actions (1 col) ── #}
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+
+  {# Fluxo mensal — 2 colunas #}
+  <div class="s-in d3 s-hover bg-white rounded-2xl border border-borda p-5 shadow-sm md:col-span-2">
+    <div class="flex items-start justify-between gap-4 mb-4">
       <div>
         <h2 class="font-titulo font-semibold text-[15px] text-tinta">Fluxo de caixa mensal</h2>
-        <p class="text-xs text-gray-400">Entradas, saídas e resultado de {{ hoje.year }}</p>
+        <p class="text-xs text-gray-400 mt-0.5">Entradas, saídas e resultado · {{ hoje.year }}</p>
       </div>
-      <div id="leg-fluxo" class="flex flex-wrap gap-3 pt-1"></div>
+      <div id="leg-fluxo" class="flex flex-wrap gap-4 pt-0.5"></div>
     </div>
-    <div class="relative h-64"><canvas id="grafico-fluxo"></canvas></div>
+    <div class="relative h-52"><canvas id="grafico-fluxo"></canvas></div>
   </div>
-</div>
 
-<div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
-  <div class="bg-white rounded-2xl border border-borda p-5">
-    <h2 class="font-semibold mb-3 text-sm">Maiores despesas do mês (por grupo)</h2>
+  {# Donut despesas por grupo #}
+  <div class="s-in d4 s-hover bg-white rounded-2xl border border-borda p-5">
+    <h2 class="font-titulo font-semibold text-[15px] text-tinta mb-1 flex items-center gap-2">
+      <i data-lucide="pie-chart" class="w-4 h-4 text-bangalo-500"></i>Despesas
+    </h2>
+    <p class="text-xs text-gray-400 mb-3">Por grupo · mês atual</p>
     {% if ranking %}
-      <table class="w-full text-sm">
-        {% for grupo, total in ranking %}
-        <tr class="border-b border-borda last:border-0">
-          <td class="py-2 text-gray-600">{{ grupo }}</td>
-          <td class="py-2 num font-medium">{{ total | brl }}</td>
-        </tr>
-        {% endfor %}
-      </table>
+      <div class="relative h-36"><canvas id="grafico-donut"></canvas></div>
+      <div id="leg-donut" class="mt-3 grid grid-cols-2 gap-x-2 gap-y-1.5"></div>
     {% else %}
-      <p class="text-sm text-gray-400">Sem lançamentos de saída neste mês.</p>
+      <p class="text-sm text-gray-400 mt-4">Sem despesas neste mês.</p>
     {% endif %}
   </div>
-  <div class="bg-white rounded-2xl border border-borda p-5">
-    <h2 class="font-semibold mb-3 text-sm">Gorjetas — próxima quinzena</h2>
-    {% if proxima_quinzena %}
-      <p class="text-lg font-medium">{{ proxima_quinzena.referencia }}</p>
-      <p class="text-sm text-gray-500 mt-1">
-        {{ proxima_quinzena.data_inicio | data_curta }} a {{ proxima_quinzena.data_fim | data_curta }}
-        · Comissão bruta {{ proxima_quinzena.comissao_bruta | brl }}
-      </p>
-      <a href="{{ url_for('gorjetas.detalhe', periodo_id=proxima_quinzena.id) }}"
-         class="inline-block mt-4 px-4 py-2 rounded-lg bg-bangalo-500 text-white text-sm hover:bg-bangalo-600">
-        Abrir quinzena
+
+  {# Quick actions — gorjetas + navegação rápida #}
+  <div class="s-in d5 bg-white rounded-2xl border border-borda p-5">
+    <h2 class="font-titulo font-semibold text-[15px] text-tinta mb-1 flex items-center gap-2">
+      <i data-lucide="zap" class="w-4 h-4 text-bangalo-500"></i>Atalhos
+    </h2>
+    <p class="text-xs text-gray-400 mb-3">Acesso rápido</p>
+    <div class="space-y-1">
+      {% set acoes = [
+        (url_for('fluxo_caixa.visao_mensal_view'), 'arrow-right-left', 'Fluxo de caixa',  'Ver lançamentos do mês'),
+        (url_for('gorjetas.listar'),                'hand-coins',       'Gorjetas',         'Quinzenas e rateios'),
+        (url_for('metas.painel'),                   'target',           'Metas',            'Acompanhar faturamento'),
+        (url_for('cadastros.categorias'),           'folder-cog',       'Cadastros',        'Categorias e parceiros'),
+      ] %}
+      {% for url, icone, titulo, desc in acoes %}
+      <a href="{{ url }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-bangalo-50 group">
+        <span class="w-8 h-8 rounded-lg bg-bangalo-50 text-bangalo-500 grid place-items-center shrink-0
+                     group-hover:bg-bangalo-500 group-hover:text-white transition-colors">
+          <i data-lucide="{{ icone }}" class="w-4 h-4"></i>
+        </span>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-medium text-tinta">{{ titulo }}</p>
+          <p class="text-[11px] text-gray-400 leading-tight">{{ desc }}</p>
+        </div>
+        <i data-lucide="chevron-right" class="w-4 h-4 text-gray-300 group-hover:text-bangalo-500 shrink-0"></i>
       </a>
-    {% else %}
-      <p class="text-sm text-gray-400">Nenhuma quinzena aberta.</p>
-      <a href="{{ url_for('gorjetas.listar') }}" class="inline-block mt-3 text-sm text-bangalo-600 hover:underline">Ir para gorjetas</a>
-    {% endif %}
+      {% endfor %}
+
+      {% if proxima_quinzena %}
+      <div class="mt-2 pt-2 border-t border-borda">
+        <p class="text-[11px] text-gray-400 px-3 mb-1.5">Próxima quinzena</p>
+        <a href="{{ url_for('gorjetas.detalhe', periodo_id=proxima_quinzena.id) }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-bangalo-50 group">
+          <span class="w-8 h-8 rounded-lg bg-amber-50 text-alerta grid place-items-center shrink-0
+                       group-hover:bg-bangalo-500 group-hover:text-white transition-colors">
+            <i data-lucide="calendar-clock" class="w-4 h-4"></i>
+          </span>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-tinta truncate">{{ proxima_quinzena.referencia }}</p>
+            <p class="text-[11px] text-gray-400">
+              {{ proxima_quinzena.data_inicio | data_curta }} – {{ proxima_quinzena.data_fim | data_curta }}
+              · {{ proxima_quinzena.comissao_bruta | brl }}
+            </p>
+          </div>
+          <i data-lucide="chevron-right" class="w-4 h-4 text-gray-300 group-hover:text-bangalo-500 shrink-0"></i>
+        </a>
+      </div>
+      {% endif %}
+    </div>
   </div>
+
 </div>
 {% endblock %}
 
@@ -102,14 +210,30 @@
 <script src="{{ url_for('static', filename='js/graficos.js') }}"></script>
 <script>
 BangaloCharts.defaults();
+
 fetch('{{ url_for("dashboard.api_metas_anual", ano=hoje.year) }}')
   .then(r => r.json())
   .then(dados => BangaloCharts.metaVsRealizado(
-    document.getElementById('grafico-metas'), document.getElementById('leg-metas'), dados));
+    document.getElementById('grafico-metas'),
+    document.getElementById('leg-metas'),
+    dados
+  ));
 
 fetch('{{ url_for("dashboard.api_fluxo_mensal", ano=hoje.year) }}')
   .then(r => r.json())
   .then(dados => BangaloCharts.fluxoMensal(
-    document.getElementById('grafico-fluxo'), document.getElementById('leg-fluxo'), dados));
+    document.getElementById('grafico-fluxo'),
+    document.getElementById('leg-fluxo'),
+    dados
+  ));
+
+{% if ranking %}
+const rankingDados = {{ ranking_json | safe }};
+BangaloCharts.donutDespesas(
+  document.getElementById('grafico-donut'),
+  document.getElementById('leg-donut'),
+  rankingDados
+);
+{% endif %}
 </script>
 {% endblock %}
