@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """Regressão do importer de fluxo com planilha sintética (sem dados reais).
 
-Cobre as regras críticas descobertas na planilha real:
-  - coluna de DIA = "Saldo Inicial" preenchido; coluna de SUBTOTAL = vazio
-    (o subtotal NÃO pode ser importado, senão conta o mês duas vezes);
-  - ano do cabeçalho é ignorado e forçado para 2026;
-  - 29/02 (inexistente em 2026) é pulado.
+Cobre as regras críticas:
+  - layout detectado por RÓTULOS (imune a inserção de linhas);
+  - coluna de dia (Saldo Inicial preenchido) x subtotal mensal (vazio);
+  - ano do cabeçalho ignorado e forçado para 2026;
+  - 29/02 (inexistente em 2026) é pulado;
+  - célula de TEXTO que parece número é ignorada (como no Excel).
 """
 from datetime import datetime
 from decimal import Decimal
@@ -18,75 +19,82 @@ from app.importers import fluxo_importer
 from app.models.fluxo import Lancamento
 from app.seeds import seed_plano_contas, seed_setores_funcoes
 
+# Esqueleto com todas as âncoras que o importador procura (col A / col B).
+# (linha, colA, colB) — a linha 3 (Visa Crédito) recebe os valores dos testes.
+ESQUELETO = [
+    (2, "", "Saldo Inicial"),
+    (3, "Entradas", "Visa Crédito"),
+    (4, "Total Entradas", ""),
+    (5, "Saídas", "DAS"),
+    (6, "Total Impostos", ""),
+    (7, "Custo Variável 1", "Salários"),
+    (8, "Subtotal Salários", ""),
+    (9, "", "Pro Labore/Lucro"),
+    (10, "Subtotal Despesas Gerais", ""),
+    (11, "", "Ambev/CRBS"),
+    (12, "SubTotal Compras", ""),
+    (13, "Custo Variavel 2", "Aluguel"),
+    (14, "", "Emprestimos Heitor"),
+    (15, "Total Despesas", ""),
+    (16, "Total Saidas", ""),
+    (17, "", "Saldo Final"),
+    (18, "", "SALDO APLICAÇÃO"),
+    (19, "", "ENTRADA"),
+    (20, "", "RENDIMENTO"),
+    (21, "", "RESGATE"),
+]
+LINHA_VISA = 3
 
-@pytest.fixture()
-def planilha_sintetica(tmp_path):
-    """Mini aba '2026': 2 dias de janeiro + 1 coluna de subtotal do mês."""
+
+def _montar(tmp_path, colunas):
+    """colunas: lista de (header_datetime, saldo_inicial|None, visa_valor|None)."""
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "2026"
-
-    # Cabeçalho (linha 1): ano ERRADO de propósito (2023/2024)
-    ws.cell(row=1, column=3, value=datetime(2023, 1, 1))   # dia (col C)
-    ws.cell(row=1, column=4, value=datetime(2024, 1, 2))   # dia (col D)
-    ws.cell(row=1, column=5, value=datetime(2024, 1, 23))  # SUBTOTAL do mês (col E)
-
-    # Linha 2 = Saldo Inicial: preenchido nos dias, VAZIO no subtotal
-    ws.cell(row=2, column=2, value="Saldo Inicial")
-    ws.cell(row=2, column=3, value=1000)
-    ws.cell(row=2, column=4, value=1200)
-    # col 5 (subtotal) fica vazio -> marca de coluna de subtotal
-
-    # Linha 4 = "Visa Crédito" (entrada / Operacional). Faixa entrada = 3..14
-    ws.cell(row=4, column=2, value="Visa Crédito")
-    ws.cell(row=4, column=3, value=100)     # dia 1
-    ws.cell(row=4, column=4, value=250)     # dia 2
-    ws.cell(row=4, column=5, value=350)     # SUBTOTAL (100+250) — NÃO deve entrar
-
-    wb.save(tmp_path / "fluxo.xlsx")
-    return tmp_path / "fluxo.xlsx"
+    for linha, a, b in ESQUELETO:
+        if a:
+            ws.cell(row=linha, column=1, value=a)
+        if b:
+            ws.cell(row=linha, column=2, value=b)
+    for i, (hdr, saldo, visa) in enumerate(colunas):
+        c = 3 + i  # col C em diante
+        ws.cell(row=1, column=c, value=hdr)
+        if saldo is not None:
+            ws.cell(row=2, column=c, value=saldo)
+        if visa is not None:
+            ws.cell(row=LINHA_VISA, column=c, value=visa)
+    caminho = tmp_path / "fluxo.xlsx"
+    wb.save(caminho)
+    return caminho
 
 
-def test_importer_ignora_subtotal_e_forca_ano(app, planilha_sintetica):
+@pytest.fixture()
+def _seed(app):
     seed_setores_funcoes()
     seed_plano_contas()
     db.session.commit()
 
-    fluxo_importer.importar(planilha_sintetica)
+
+def test_importer_ignora_subtotal_e_forca_ano(_seed, tmp_path):
+    caminho = _montar(tmp_path, [
+        (datetime(2023, 1, 1), 1000, 100),   # dia
+        (datetime(2024, 1, 2), 1200, 250),   # dia
+        (datetime(2024, 1, 23), None, 350),  # SUBTOTAL mensal (saldo vazio) -> ignora
+    ])
+    fluxo_importer.importar(caminho)
     db.session.commit()
 
     lancs = db.session.query(Lancamento).all()
-    # só os 2 dias entram; a coluna de subtotal é ignorada (senão seriam 3)
-    assert len(lancs) == 2
+    assert len(lancs) == 2  # a coluna de subtotal não entra
     assert sum((l.valor for l in lancs), Decimal("0")) == Decimal("350.00")
-    # ano forçado para 2026, mês/dia preservados
     assert {l.data.isoformat() for l in lancs} == {"2026-01-01", "2026-01-02"}
 
 
-def test_importer_ignora_celula_texto(app, tmp_path):
-    """Célula digitada como TEXTO ("284.87") não deve ser importada.
-
-    A planilha (como o Excel) ignora texto nas somas; importá-lo divergiria
-    o saldo. Caso real: Umehara/24-06 na planilha do Bangalô.
-    """
-    seed_setores_funcoes()
-    seed_plano_contas()
-    db.session.commit()
-
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "2026"
-    ws.cell(row=1, column=3, value=datetime(2024, 6, 1))
-    ws.cell(row=1, column=4, value=datetime(2024, 6, 2))
-    ws.cell(row=2, column=2, value="Saldo Inicial")
-    ws.cell(row=2, column=3, value=1000)
-    ws.cell(row=2, column=4, value=1000)
-    ws.cell(row=4, column=2, value="Visa Crédito")
-    ws.cell(row=4, column=3, value=100)      # número -> entra
-    ws.cell(row=4, column=4, value="284.87")  # TEXTO -> deve ser ignorado
-    caminho = tmp_path / "texto.xlsx"
-    wb.save(caminho)
-
+def test_importer_ignora_celula_texto(_seed, tmp_path):
+    caminho = _montar(tmp_path, [
+        (datetime(2024, 6, 1), 1000, 100),        # número -> entra
+        (datetime(2024, 6, 2), 1000, "284.87"),   # TEXTO -> ignorado
+    ])
     fluxo_importer.importar(caminho)
     db.session.commit()
 
@@ -95,25 +103,30 @@ def test_importer_ignora_celula_texto(app, tmp_path):
     assert lancs[0].valor == Decimal("100.00")
 
 
-def test_importer_pula_29_02(app, tmp_path):
-    seed_setores_funcoes()
-    seed_plano_contas()
-    db.session.commit()
-
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "2026"
-    ws.cell(row=1, column=3, value=datetime(2024, 2, 29))  # 29/02 (fonte bissexta)
-    ws.cell(row=2, column=2, value="Saldo Inicial")
-    ws.cell(row=2, column=3, value=500)
-    ws.cell(row=4, column=2, value="Visa Crédito")
-    ws.cell(row=4, column=3, value=99)
-    caminho = tmp_path / "f2.xlsx"
-    wb.save(caminho)
-
+def test_importer_pula_29_02(_seed, tmp_path):
+    caminho = _montar(tmp_path, [
+        (datetime(2024, 2, 29), 500, 99),  # 29/02 não existe em 2026
+    ])
     relatorio = fluxo_importer.importar(caminho)
     db.session.commit()
 
-    # 29/02 não existe em 2026 -> nenhum lançamento, e o aviso aparece
     assert db.session.query(Lancamento).count() == 0
     assert any("29/02" in linha for linha in relatorio)
+
+
+def test_importer_layout_resiliente_a_insercao(_seed, tmp_path):
+    """Inserir uma linha nova no meio não deve quebrar o mapeamento."""
+    caminho = _montar(tmp_path, [(datetime(2024, 1, 1), 1000, 100)])
+    # insere uma conta nova de despesa fixa depois de 'Aluguel' (linha 13)
+    wb = openpyxl.load_workbook(caminho)
+    ws = wb["2026"]
+    ws.insert_rows(14)
+    ws.cell(row=14, column=2, value="Nova Conta Fixa")
+    wb.save(caminho)
+
+    fluxo_importer.importar(caminho)
+    db.session.commit()
+    # Visa continua sendo importado corretamente mesmo com a linha inserida
+    lancs = db.session.query(Lancamento).all()
+    assert len(lancs) == 1
+    assert lancs[0].valor == Decimal("100.00")
