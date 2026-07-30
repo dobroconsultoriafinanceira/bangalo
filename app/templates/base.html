@@ -47,6 +47,22 @@
     h1, h2, h3, .font-titulo { font-family: 'Poppins', sans-serif; }
     .num { font-variant-numeric: tabular-nums; text-align: right; }
     [x-cloak] { display: none; }
+
+    /* Animações de interface (espírito transitions.dev) */
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .anim-in   { animation: fadeUp .5s cubic-bezier(.22,.61,.36,1) both; }
+    .anim-fade { animation: fadeIn .5s ease both; }
+    /* stagger: .anim-in.d1 .. .d6 */
+    .d1{animation-delay:.05s}.d2{animation-delay:.11s}.d3{animation-delay:.17s}
+    .d4{animation-delay:.23s}.d5{animation-delay:.29s}.d6{animation-delay:.35s}
+    .card-hover { transition: transform .18s ease, box-shadow .18s ease; }
+    .card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 30px -12px rgba(90,38,16,.25); }
+    a, button, .transition-base { transition: background-color .15s ease, color .15s ease, border-color .15s ease, opacity .15s ease; }
+    @media (prefers-reduced-motion: reduce) {
+      .anim-in, .anim-fade { animation: none; }
+      .card-hover { transition: none; }
+    }
   </style>
   {% block head_extra %}{% endblock %}
 </head>
@@ -132,7 +148,7 @@
       {% endif %}
     {% endwith %}
 
-    <main class="flex-1 px-4 lg:px-8 py-6">
+    <main class="flex-1 px-4 lg:px-8 py-6 anim-fade">
       {% block conteudo %}{% endblock %}
     </main>
   </div>
