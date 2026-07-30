@@ -36,6 +36,7 @@ def create_app(config_name: str | None = None) -> Flask:
     # --- blueprints ---
     from app.blueprints.auth import bp as auth_bp
     from app.blueprints.dashboard import bp as dashboard_bp
+    from app.blueprints.dre import bp as dre_bp
     from app.blueprints.fluxo_caixa import bp as fluxo_bp
     from app.blueprints.gorjetas import bp as gorjetas_bp
     from app.blueprints.metas import bp as metas_bp
@@ -44,6 +45,7 @@ def create_app(config_name: str | None = None) -> Flask:
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
+    app.register_blueprint(dre_bp, url_prefix="/dre")
     app.register_blueprint(fluxo_bp, url_prefix="/fluxo")
     app.register_blueprint(gorjetas_bp, url_prefix="/gorjetas")
     app.register_blueprint(metas_bp, url_prefix="/metas")

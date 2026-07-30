@@ -30,6 +30,7 @@ REGISTROS_COLABORADOR = (
     "CLT", "Por fora", "CLT (rescisão)", "CLT (férias)", "Experiência",
 )
 MOTIVOS_DESCONTO = ("Perda", "Avaria", "Vale", "Descontos")
+TIPOS_DESCONTO_SETOR = ("Perda", "Avaria", "Vale", "Desconto")
 STATUS_PERIODO = ("aberto", "fechado")
 
 
@@ -109,6 +110,7 @@ class PeriodoGorjeta(db.Model):
     participacoes = relationship("ParticipacaoPeriodo", back_populates="periodo", cascade="all, delete-orphan")
     presencas = relationship("Presenca", back_populates="periodo", cascade="all, delete-orphan")
     comissoes_diarias = relationship("ComissaoDiaria", back_populates="periodo", cascade="all, delete-orphan")
+    descontos_setor = relationship("DescontoQuinzena", back_populates="periodo", cascade="all, delete-orphan")
     fechamentos = relationship("FechamentoGorjeta", back_populates="periodo")
 
     @property
@@ -172,6 +174,25 @@ class ComissaoDiaria(db.Model):
     valor: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
 
     periodo = relationship("PeriodoGorjeta", back_populates="comissoes_diarias")
+
+
+class DescontoQuinzena(db.Model):
+    """Desconto por setor (perda/avaria/vale/desconto) — distribuído proporcionalmente ao bruto rateado."""
+
+    __tablename__ = "desconto_quinzena"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    periodo_id: Mapped[int] = mapped_column(ForeignKey("periodo_gorjeta.id"), nullable=False, index=True)
+    setor_id: Mapped[int] = mapped_column(ForeignKey("setor.id"), nullable=False)
+    tipo: Mapped[str] = mapped_column(
+        Enum(*TIPOS_DESCONTO_SETOR, name="tipo_desconto_setor", native_enum=False),
+        nullable=False,
+    )
+    valor: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal("0"))
+    observacao: Mapped[str | None] = mapped_column(Text)
+
+    periodo = relationship("PeriodoGorjeta", back_populates="descontos_setor")
+    setor = relationship("Setor")
 
 
 class FechamentoGorjeta(db.Model):

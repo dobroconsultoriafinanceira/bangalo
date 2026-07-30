@@ -129,10 +129,10 @@ def importar(caminho: Path) -> list[str]:
         (L_SALDO_INI + 1, L_TOT_ENT - 1, "entrada", None, False),
         (m["saidas"], L_TOT_IMP - 1, "saida", "Impostos", False),
         (m["cv1"], m["sub_salarios"] - 1, "saida", "Folha/Salários", False),
-        (m["sub_salarios"] + 1, m["sub_desp_gerais"] - 1, "saida", "Despesas Gerais", False),
+        (m["sub_salarios"] + 1, m["sub_desp_gerais"] - 1, "saida", "Demais Salários", False),
         (m["sub_desp_gerais"] + 1, m["sub_compras"] - 1, "saida", "Compras (CPV)", True),
         (m["cv2"], m["outros"] - 1, "saida", "Despesas Fixas", False),
-        (m["outros"], m["total_despesas"] - 1, "saida", "Outros/Financeiro", False),
+        (m["outros"], m["total_despesas"] - 1, "saida", "Despesas Gerais", False),
     ]
     aplicacao_rows = {
         m["ap_entrada"]: "entrada",
@@ -182,11 +182,9 @@ def importar(caminho: Path) -> list[str]:
     n_lanc = 0
 
     def grupo_entrada(label_norm: str) -> str:
-        if label_norm == "patrocinio":
-            return "Patrocínio"
-        if label_norm in ("emprestimos", "resgate"):
-            return "Financeiras"
-        return "Operacional"
+        if label_norm in ("patrocinio", "emprestimos", "resgate", "outros/acerto"):
+            return "Outras Entradas"
+        return "Entradas"
 
     # --- lançamentos de fluxo ---
     for ini, fim, tipo, grupo, eh_forn in faixas:

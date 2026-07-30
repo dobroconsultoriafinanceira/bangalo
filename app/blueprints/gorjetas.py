@@ -19,12 +19,16 @@ from flask_login import login_required
 from app.extensions import db
 from app.models.gorjetas import (
     MOTIVOS_DESCONTO,
+    TIPOS_DESCONTO_SETOR,
     Colaborador,
     ComissaoDiaria,
+    DescontoQuinzena,
     FechamentoGorjeta,
+    Funcao,
     ParticipacaoPeriodo,
     PeriodoGorjeta,
     Presenca,
+    Setor,
 )
 from app.services import auditoria, gorjetas_consultas, metas_consultas
 from app.services.metas import meta_quinzena
@@ -128,6 +132,15 @@ def detalhe(periodo_id: int):
     colaboradores = db.session.execute(
         db.select(Colaborador).filter_by(ativo=True).order_by(Colaborador.nome)
     ).scalars().all()
+    colaboradores_inativos = db.session.execute(
+        db.select(Colaborador).filter_by(ativo=False).order_by(Colaborador.nome)
+    ).scalars().all()
+    setores = db.session.execute(
+        db.select(Setor).filter_by(ativo=True).order_by(Setor.nome)
+    ).scalars().all()
+    funcoes = db.session.execute(
+        db.select(Funcao).order_by(Funcao.setor_id, Funcao.nome)
+    ).scalars().all()
 
     return render_template(
         "gorjetas/detalhe.html",
@@ -138,7 +151,11 @@ def detalhe(periodo_id: int):
         presencas=presencas,
         comissoes=comissoes,
         colaboradores=colaboradores,
+        colaboradores_inativos=colaboradores_inativos,
+        setores=setores,
+        funcoes=funcoes,
         motivos_desconto=MOTIVOS_DESCONTO,
+        tipos_desconto_setor=TIPOS_DESCONTO_SETOR,
     )
 
 
@@ -233,12 +250,118 @@ def api_rateio(periodo_id: int):
             {
                 "id": r.id, "nome": r.nome, "setor": r.setor, "funcao": r.funcao,
                 "pontos": float(r.pontos), "dias": r.dias_trabalhados,
-                "bruto": float(r.bruto_rateado), "desconto": float(r.desconto),
+                "bruto": float(r.bruto_rateado),
+                "desconto_setor": float(r.desconto_setor),
+                "desconto": float(r.desconto),
                 "liquido": float(r.liquido),
             }
             for r in resultado.colaboradores
         ],
     })
+
+
+@bp.route("/<int:periodo_id>/descontos/add", methods=["POST"])
+@login_required
+def desconto_setor_add(periodo_id: int):
+    periodo = db.session.get(PeriodoGorjeta, periodo_id) or abort(404)
+    if periodo.fechado:
+        flash("Quinzena fechada.", "error")
+        return redirect(url_for("gorjetas.detalhe", periodo_id=periodo_id))
+
+    setor_id = request.form.get("setor_id", type=int)
+    tipo = request.form.get("tipo", "").strip()
+    valor = _parse_valor(request.form.get("valor", ""))
+    obs = (request.form.get("observacao") or "").strip() or None
+
+    if not setor_id or not tipo or not valor:
+        flash("Preencha setor, tipo e valor.", "error")
+        return redirect(url_for("gorjetas.detalhe", periodo_id=periodo_id))
+
+    db.session.add(DescontoQuinzena(
+        periodo_id=periodo_id, setor_id=setor_id, tipo=tipo, valor=valor, observacao=obs,
+    ))
+    auditoria.registrar("create", "desconto_quinzena", periodo_id,
+                        depois={"setor_id": setor_id, "tipo": tipo, "valor": str(valor)})
+    db.session.commit()
+    return redirect(url_for("gorjetas.detalhe", periodo_id=periodo_id))
+
+
+@bp.route("/<int:periodo_id>/descontos/<int:desconto_id>/remover", methods=["POST"])
+@login_required
+def desconto_setor_remover(periodo_id: int, desconto_id: int):
+    d = db.session.get(DescontoQuinzena, desconto_id) or abort(404)
+    if d.periodo_id != periodo_id:
+        abort(400)
+    periodo = db.session.get(PeriodoGorjeta, periodo_id) or abort(404)
+    if periodo.fechado:
+        flash("Quinzena fechada.", "error")
+        return redirect(url_for("gorjetas.detalhe", periodo_id=periodo_id))
+    db.session.delete(d)
+    db.session.commit()
+    return redirect(url_for("gorjetas.detalhe", periodo_id=periodo_id))
+
+
+@bp.route("/<int:periodo_id>/colaborador/<int:colab_id>/desativar", methods=["POST"])
+@login_required
+def desativar_colaborador(periodo_id: int, colab_id: int):
+    c = db.session.get(Colaborador, colab_id) or abort(404)
+    c.ativo = False
+    auditoria.registrar("update", "colaborador", c.id,
+                        antes={"ativo": True}, depois={"ativo": False})
+    db.session.commit()
+    flash(f"{c.nome} desativado.", "success")
+    return redirect(url_for("gorjetas.detalhe", periodo_id=periodo_id))
+
+
+@bp.route("/<int:periodo_id>/colaborador/adicionar", methods=["POST"])
+@login_required
+def adicionar_colaborador(periodo_id: int):
+    periodo = db.session.get(PeriodoGorjeta, periodo_id) or abort(404)
+    if periodo.fechado:
+        flash("Quinzena fechada.", "error")
+        return redirect(url_for("gorjetas.detalhe", periodo_id=periodo_id))
+
+    nome = (request.form.get("nome") or "").strip()
+    funcao_id = request.form.get("funcao_id", type=int)
+
+    if not nome or not funcao_id:
+        flash("Preencha nome e função.", "error")
+        return redirect(url_for("gorjetas.detalhe", periodo_id=periodo_id))
+
+    funcao = db.session.get(Funcao, funcao_id) or abort(404)
+
+    # Reativar se já existe (mesmo nome, case-insensitive)
+    existente = db.session.execute(
+        db.select(Colaborador).filter(Colaborador.nome.ilike(nome))
+    ).scalar_one_or_none()
+
+    if existente:
+        existente.ativo = True
+        existente.funcao_id = funcao_id
+        existente.setor_id = funcao.setor_id
+        existente.pontos = funcao.pontos_padrao
+        c = existente
+        auditoria.registrar("update", "colaborador", c.id,
+                            depois={"ativo": True, "funcao_id": funcao_id})
+    else:
+        c = Colaborador(
+            nome=nome, funcao_id=funcao_id, setor_id=funcao.setor_id,
+            pontos=funcao.pontos_padrao, registro="CLT", ativo=True,
+        )
+        db.session.add(c)
+        db.session.flush()
+        auditoria.registrar("create", "colaborador", c.id, depois={"nome": nome})
+
+    # Garantir participação nesta quinzena
+    existing_part = db.session.execute(
+        db.select(ParticipacaoPeriodo).filter_by(periodo_id=periodo_id, colaborador_id=c.id)
+    ).scalar_one_or_none()
+    if not existing_part:
+        db.session.add(ParticipacaoPeriodo(periodo_id=periodo_id, colaborador_id=c.id))
+
+    db.session.commit()
+    flash(f"{c.nome} adicionado à quinzena.", "success")
+    return redirect(url_for("gorjetas.detalhe", periodo_id=periodo_id))
 
 
 @bp.route("/<int:periodo_id>/fechar", methods=["POST"])

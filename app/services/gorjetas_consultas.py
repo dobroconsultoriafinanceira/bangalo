@@ -5,6 +5,7 @@ from decimal import Decimal
 from app.extensions import db
 from app.models.gorjetas import (
     Colaborador,
+    DescontoQuinzena,
     FechamentoGorjeta,
     ParticipacaoPeriodo,
     PeriodoGorjeta,
@@ -57,14 +58,25 @@ def montar_entrada(periodo: PeriodoGorjeta) -> tuple[list[engine.ColaboradorRate
     return entrada, comissao_por_dia
 
 
+def descontos_setor_dict(periodo: PeriodoGorjeta) -> dict[str, Decimal]:
+    """Soma dos descontos por setor para este período: {nome_setor: total}."""
+    total: dict[str, Decimal] = {}
+    for d in periodo.descontos_setor:
+        nome = d.setor.nome
+        total[nome] = total.get(nome, Decimal("0")) + Decimal(d.valor)
+    return total
+
+
 def calcular(periodo: PeriodoGorjeta) -> engine.ResultadoRateio:
     colaboradores, comissao_por_dia = montar_entrada(periodo)
+    descontos_s = descontos_setor_dict(periodo)
     return engine.calcular_rateio(
         comissao_bruta=Decimal(periodo.comissao_bruta),
         percentual_encargos=Decimal(periodo.percentual_encargos),
         percentuais_setor=percentuais_setores(),
         colaboradores=colaboradores,
         comissao_por_dia=comissao_por_dia or None,
+        descontos_setor=descontos_s or None,
     )
 
 
@@ -93,11 +105,28 @@ def fechar(periodo: PeriodoGorjeta) -> engine.ResultadoRateio:
 
 
 def garantir_participacoes(periodo: PeriodoGorjeta) -> None:
-    """Cria participações zeradas para todos os colaboradores ativos."""
+    """Pré-popula com colaboradores da última quinzena fechada (ou todos ativos se não houver)."""
     existentes = {p.colaborador_id for p in periodo.participacoes}
-    ativos = db.session.execute(
-        db.select(Colaborador).filter_by(ativo=True)
-    ).scalars().all()
-    for c in ativos:
+
+    ultima_fechada = db.session.execute(
+        db.select(PeriodoGorjeta)
+        .filter(PeriodoGorjeta.status == "fechado", PeriodoGorjeta.id != periodo.id)
+        .order_by(PeriodoGorjeta.data_fim.desc())
+    ).scalars().first()
+
+    if ultima_fechada:
+        ids_base = {p.colaborador_id for p in ultima_fechada.participacoes}
+        base = db.session.execute(
+            db.select(Colaborador).filter(
+                Colaborador.id.in_(ids_base),
+                Colaborador.ativo == True,
+            )
+        ).scalars().all()
+    else:
+        base = db.session.execute(
+            db.select(Colaborador).filter_by(ativo=True)
+        ).scalars().all()
+
+    for c in base:
         if c.id not in existentes:
             db.session.add(ParticipacaoPeriodo(periodo_id=periodo.id, colaborador_id=c.id))

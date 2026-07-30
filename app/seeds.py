@@ -35,15 +35,16 @@ FUNCOES = [
 
 # ---- Plano de contas: (nome, tipo, grupo) ----
 CATEGORIAS_ENTRADA = [
-    # Operacional
-    *[(n, "entrada", "Operacional") for n in [
+    # Entradas
+    *[(n, "entrada", "Entradas") for n in [
         "Visa Crédito", "Master Card Crédito", "ELO Crédito", "Amex Crédito",
         "ELO Débito", "Visa Electron Débito", "Maestro Débito", "Dinheiro",
-        "IFOOD", "99 FOOD", "Pagamento em PIX", "Outros/Acerto",
+        "IFOOD", "99 FOOD", "Pagamento em PIX",
     ]],
-    ("Patrocínio", "entrada", "Patrocínio"),
-    ("Empréstimos", "entrada", "Financeiras"),
-    ("Resgate", "entrada", "Financeiras"),
+    ("Patrocínio", "entrada", "Outras Entradas"),
+    ("Empréstimos", "entrada", "Outras Entradas"),
+    ("Resgate", "entrada", "Outras Entradas"),
+    ("Outros/Acerto", "entrada", "Outras Entradas"),
 ]
 
 CATEGORIAS_SAIDA = [
@@ -55,7 +56,7 @@ CATEGORIAS_SAIDA = [
         "Medicina Trabalho", "Sigaban", "Sindirefeições", "Life Card/Shalon",
         "Funcionário Extra", "Ações/Acordos Trabalhistas",
     ]],
-    *[(n, "saida", "Despesas Gerais") for n in [
+    *[(n, "saida", "Demais Salários") for n in [
         "Pro Labore/Lucro", "Músicos", "Técnico Som", "Segurança",
     ]],
     ("Compras", "saida", "Compras (CPV)"),
@@ -67,12 +68,13 @@ CATEGORIAS_SAIDA = [
         "GRDJ/FREST", "Emantec/iNova", "Ecad", "Clauwan/C.Villela", "Seguro",
         "Força Ambiental", "Marketing/Fotografias/Gráfica", "Taxa Inspeção Sanitária",
         "Taxa Incêndio", "Tuap", "Manutenção/Obras/Equip.", "Nutricionista",
-        "Virtual Market", "Control ID", "Abrasel", "Assessoria Financeira",
-        "Falae/Experiência B2S", "Jurídico", "Outros DARJ/DARM/DIFAL",
+        "NixConsultoria", "Virtual Market", "Control ID", "Abrasel",
+        "Assessoria Financeira", "Falae/Experiência B2S", "Jurídico",
+        "Outros DARJ/DARM/DIFAL",
     ]],
-    *[(n, "saida", "Outros/Financeiro") for n in [
+    *[(n, "saida", "Despesas Gerais") for n in [
         "Empréstimos Heitor", "Dívidas Receita (Simples/PERT)", "Aplicação",
-        "Despesas Bancárias", "Reembolsos", "Multas", "Outros Acertos",
+        "Despesas Bancárias", "Reembolso Barbara", "Multas", "Outros Acertos",
     ]],
 ]
 

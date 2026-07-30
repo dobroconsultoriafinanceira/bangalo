@@ -31,7 +31,18 @@ def home():
     fim_mes = ultimo_dia_mes(hoje.year, hoje.month)
 
     totais_mes = fluxo_srv.totais_por_tipo(inicio_mes, fim_mes)
-    saldo_atual = fluxo_srv.saldo_ate(hoje)
+    totais_grupos = fluxo_srv.totais_por_grupo(inicio_mes, fim_mes)
+
+    entradas = totais_mes["entrada"]
+    saidas = totais_mes["saida"]
+    resultado_mes = entradas - saidas
+    cmv_mes = totais_grupos.get("Compras (CPV)", Decimal("0"))
+
+    def _razao(num: Decimal, denom: Decimal):
+        return float(num / denom) if denom else None
+
+    margem_bruta = _razao(entradas - cmv_mes, entradas)
+    margem_liquida = _razao(resultado_mes, entradas)
 
     # Mês anterior — para os deltas dos KPIs
     mes_ant = hoje.month - 1 or 12
@@ -57,11 +68,14 @@ def home():
     return render_template(
         "dashboard/home.html",
         hoje=hoje,
-        saldo_atual=saldo_atual,
-        entradas_mes=totais_mes["entrada"],
-        saidas_mes=totais_mes["saida"],
-        delta_entradas=_delta_pct(totais_mes["entrada"], totais_anterior["entrada"]),
-        delta_saidas=_delta_pct(totais_mes["saida"], totais_anterior["saida"]),
+        entradas_mes=entradas,
+        saidas_mes=saidas,
+        resultado_mes=resultado_mes,
+        cmv_mes=cmv_mes,
+        margem_bruta=margem_bruta,
+        margem_liquida=margem_liquida,
+        delta_entradas=_delta_pct(entradas, totais_anterior["entrada"]),
+        delta_saidas=_delta_pct(saidas, totais_anterior["saida"]),
         linha_meta=linha_meta,
         ranking=ranking,
         ranking_json=ranking_json,

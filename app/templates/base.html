@@ -107,6 +107,7 @@
         </a>
       {%- endmacro %}
       {{ item(url_for('dashboard.home'), 'layout-dashboard', 'Dashboard', rota == 'dashboard.home') }}
+      {{ item(url_for('dre.index'), 'trending-up', 'DRE Gerencial', rota.startswith('dre')) }}
       {{ item(url_for('fluxo_caixa.visao_mensal_view'), 'arrow-right-left', 'Fluxo de Caixa', rota.startswith('fluxo_caixa')) }}
       {{ item(url_for('gorjetas.listar'), 'hand-coins', 'Gorjetas', rota.startswith('gorjetas')) }}
       {{ item(url_for('metas.painel'), 'target', 'Metas', rota.startswith('metas')) }}
@@ -142,6 +143,7 @@
     </header>
     <nav id="menu-mobile" class="lg:hidden hidden bg-white border-b border-borda px-4 py-2 text-sm grid grid-cols-2 gap-1">
       <a class="py-2 text-gray-700" href="{{ url_for('dashboard.home') }}">Dashboard</a>
+      <a class="py-2 text-gray-700" href="{{ url_for('dre.index') }}">DRE Gerencial</a>
       <a class="py-2 text-gray-700" href="{{ url_for('fluxo_caixa.visao_mensal_view') }}">Fluxo de Caixa</a>
       <a class="py-2 text-gray-700" href="{{ url_for('gorjetas.listar') }}">Gorjetas</a>
       <a class="py-2 text-gray-700" href="{{ url_for('metas.painel') }}">Metas</a>

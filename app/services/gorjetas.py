@@ -52,7 +52,8 @@ class ResultadoColaborador:
     pontos: Decimal
     dias_trabalhados: int
     bruto_rateado: Decimal
-    desconto: Decimal
+    desconto_setor: Decimal   # proporcional ao bruto — vem de DescontoQuinzena
+    desconto: Decimal         # desconto individual/manual (ParticipacaoPeriodo)
     liquido: Decimal
 
 
@@ -84,23 +85,45 @@ def _finalizar(
     colaboradores: list[ColaboradorRateio],
     pools: dict[str, Decimal],
     redistribuido: Decimal,
+    descontos_setor: dict[str, Decimal] | None = None,
 ) -> ResultadoRateio:
+    # Soma dos brutos por setor (antes de quantizar) para distribuição proporcional
+    bruto_setor_raw: dict[str, Decimal] = {}
+    for c in colaboradores:
+        b = brutos.get(c.id, Decimal("0"))
+        bruto_setor_raw[c.setor] = bruto_setor_raw.get(c.setor, Decimal("0")) + b
+
     resultados = []
     pago_por_setor: dict[str, Decimal] = {s: Decimal("0") for s in pools}
     total_descontos = Decimal("0")
     total_a_pagar = Decimal("0")
+
     for c in colaboradores:
         bruto = brutos.get(c.id, Decimal("0")).quantize(CENTAVOS)
-        desconto = (c.desconto or Decimal("0")).quantize(CENTAVOS)
-        liquido = bruto - desconto
+        desc_individual = (c.desconto or Decimal("0")).quantize(CENTAVOS)
+
+        desc_setor = Decimal("0")
+        if descontos_setor:
+            total_desc_s = descontos_setor.get(c.setor, Decimal("0"))
+            if total_desc_s > 0:
+                total_bruto_s = bruto_setor_raw.get(c.setor, Decimal("0"))
+                if total_bruto_s > 0:
+                    desc_setor = (brutos.get(c.id, Decimal("0")) / total_bruto_s * total_desc_s).quantize(CENTAVOS)
+
+        liquido = bruto - desc_individual - desc_setor
         pago_por_setor[c.setor] = pago_por_setor.get(c.setor, Decimal("0")) + bruto
-        total_descontos += desconto
+        total_descontos += desc_individual + desc_setor
         total_a_pagar += liquido
+
         resultados.append(ResultadoColaborador(
             id=c.id, nome=c.nome, setor=c.setor, funcao=c.funcao, registro=c.registro,
             pontos=c.pontos, dias_trabalhados=dias.get(c.id, 0),
-            bruto_rateado=bruto, desconto=desconto, liquido=liquido,
+            bruto_rateado=bruto,
+            desconto_setor=desc_setor,
+            desconto=desc_individual,
+            liquido=liquido,
         ))
+
     return ResultadoRateio(
         modo=modo,
         total_liquido=total_liquido.quantize(CENTAVOS),
@@ -119,6 +142,7 @@ def ratear_diario(
     percentuais_setor: dict[str, Decimal],
     colaboradores: list[ColaboradorRateio],
     redistribuir_setor_vazio: bool = True,
+    descontos_setor: dict[str, Decimal] | None = None,
 ) -> ResultadoRateio:
     """Engine oficial: rateio dia a dia pelos pontos presentes no dia."""
     fator_liquido = Decimal("1") - percentual_encargos
@@ -163,7 +187,7 @@ def ratear_diario(
 
     total_liquido = sum((Decimal(v) for v in comissao_por_dia.values()), Decimal("0")) * fator_liquido
     dias = {c.id: len(c.presencas) for c in colaboradores}
-    return _finalizar("diario", total_liquido, brutos, dias, colaboradores, pools, redistribuido)
+    return _finalizar("diario", total_liquido, brutos, dias, colaboradores, pools, redistribuido, descontos_setor)
 
 
 def ratear_simplificado(
@@ -172,6 +196,7 @@ def ratear_simplificado(
     percentuais_setor: dict[str, Decimal],
     colaboradores: list[ColaboradorRateio],
     redistribuir_setor_vazio: bool = True,
+    descontos_setor: dict[str, Decimal] | None = None,
 ) -> ResultadoRateio:
     """Fallback sem grade diária: peso = pontos × dias trabalhados no período."""
     total_liquido = total_liquido_a_ratear(comissao_bruta, percentual_encargos)
@@ -206,7 +231,7 @@ def ratear_simplificado(
             pools[c.setor] * peso / pesos_setor[c.setor] if pesos_setor[c.setor] > 0 else Decimal("0")
         )
 
-    return _finalizar("simplificado", total_liquido, brutos, dias, colaboradores, pools, redistribuido)
+    return _finalizar("simplificado", total_liquido, brutos, dias, colaboradores, pools, redistribuido, descontos_setor)
 
 
 def calcular_rateio(
@@ -216,6 +241,7 @@ def calcular_rateio(
     colaboradores: list[ColaboradorRateio],
     comissao_por_dia: dict[date, Decimal] | None = None,
     redistribuir_setor_vazio: bool = True,
+    descontos_setor: dict[str, Decimal] | None = None,
 ) -> ResultadoRateio:
     """Escolhe a engine: diária quando há comissão por dia + presenças."""
     tem_comissao_diaria = bool(comissao_por_dia) and any(v for v in comissao_por_dia.values())
@@ -223,11 +249,11 @@ def calcular_rateio(
     if tem_comissao_diaria and tem_presenca:
         return ratear_diario(
             comissao_por_dia, percentual_encargos, percentuais_setor,
-            colaboradores, redistribuir_setor_vazio,
+            colaboradores, redistribuir_setor_vazio, descontos_setor,
         )
     return ratear_simplificado(
         comissao_bruta, percentual_encargos, percentuais_setor,
-        colaboradores, redistribuir_setor_vazio,
+        colaboradores, redistribuir_setor_vazio, descontos_setor,
     )
 
 
