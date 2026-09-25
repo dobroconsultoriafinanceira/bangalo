@@ -1,0 +1,22 @@
+# Garante LF nos arquivos que rodam no Linux (Docker/VPS).
+# Sem isso, scripts editados no Windows chegam com CRLF e quebram no container.
+*.sh          text eol=lf
+entrypoint.sh text eol=lf
+Makefile      text eol=lf
+Dockerfile    text eol=lf
+Caddyfile     text eol=lf
+scripts/*     text eol=lf
+
+# Código e templates — LF por padrão
+*.py   text eol=lf
+*.html text eol=lf
+*.css  text eol=lf
+*.js   text eol=lf
+*.yml  text eol=lf
+
+# Binários — sem conversão
+*.png  binary
+*.jpg  binary
+*.ttf  binary
+*.xlsx binary
+*.db   binary
