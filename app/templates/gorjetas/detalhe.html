@@ -1,416 +1,657 @@
 {% extends "base.html" %}
 {% block titulo %}{{ periodo.referencia }}{% endblock %}
 {% block conteudo %}
-<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-  <div>
-    <h1 class="text-2xl font-semibold">{{ periodo.referencia }}</h1>
-    <p class="text-sm text-gray-500">
-      {{ periodo.data_inicio | data }} a {{ periodo.data_fim | data }}
-      {% if periodo.meta_quinzena %} · Meta da quinzena {{ periodo.meta_quinzena | brl }}{% endif %}
-    </p>
+{#
+  Uma quinzena, quatro etapas. TODAS as etapas ficam no HTML ao mesmo tempo
+  (só a visível muda): o POST gorjetas.salvar percorre comissões, presenças e
+  descontos juntos — esconder não pode apagar dados. Os campos da etapa 3 ficam
+  fora do <form> principal e se ligam a ele pelo atributo form="form-principal".
+  Nunca aninhar <form>.
+#}
+{% set etapas = [('1', 'Comissões'), ('2', 'Equipe'), ('3', 'Presenças'),
+                 ('4', 'Ajustes'), ('5', 'Conferência')] %}
+{% set subtitulos = {
+  '1': 'Registrar a comissão diária e os parâmetros da quinzena.',
+  '2': 'Quem fez parte da equipe nesta quinzena, com a função e o setor de então.',
+  '3': 'Conferir quem trabalhou em cada dia.',
+  '4': 'Descontos individuais e por setor, férias e extras.',
+  '5': 'Conferir os valores antes do fechamento imutável.'} %}
+{% set F = 'form="form-principal"' %}
+{% set pode_editar = current_user.pode('gorjetas.editar') %}
+
+{% call ui.page_header(periodo.referencia,
+      (periodo.data_inicio | data) ~ ' a ' ~ (periodo.data_fim | data) ~ ((' · meta da quinzena ' ~ (periodo.meta_quinzena | brl)) if periodo.meta_quinzena else '')) %}
+  <a class="btn" href="{{ url_for('gorjetas.listar') }}">{{ ui.icon('chevron-left') }}Quinzenas</a>
+  {% if pode_editar %}
+    <form method="post" action="{{ url_for('gorjetas.excluir', periodo_id=periodo.id) }}"
+          data-confirm="Excluir {{ periodo.referencia }}? Presenças, descontos e extras desta quinzena são apagados junto.">
+      {{ ui.csrf() }}<button type="submit" class="btn ghost" style="color:var(--danger)">{{ ui.icon('trash-2') }}Excluir quinzena</button>
+    </form>
+    <button type="submit" form="form-principal" class="btn primary">{{ ui.icon('save') }}Salvar quinzena</button>
+  {% endif %}
+{% endcall %}
+{% if not pode_editar %}
+  {% call ui.notice('warn') %}<p>Somente leitura: seu usuário pode ver esta quinzena, mas não alterá-la.</p>{% endcall %}
+{% endif %}
+
+<nav class="steps" aria-label="Etapas da quinzena">
+  {% for n, rotulo in etapas %}
+    <a href="?etapa={{ n }}" data-etapa-link="{{ n }}" data-subtitulo="{{ subtitulos[n] }}" class="{{ 'active' if etapa == n }}" {% if etapa == n %}aria-current="step"{% endif %}>
+      <span class="step-number">{{ n }}</span>{{ rotulo }}
+    </a>
+  {% endfor %}
+</nav>
+<p class="caption mb-24" id="etapa-subtitulo">{{ subtitulos[etapa] }}</p>
+
+<form method="post" action="{{ url_for('gorjetas.salvar', periodo_id=periodo.id) }}" id="form-principal" data-busy="Salvando…" {{ 'data-somente-leitura' if not pode_editar }}>
+{{ ui.csrf() }}
+<input type="hidden" name="etapa" id="campo-etapa" value="{{ etapa }}">
+
+{# ════════════════════════════ 1 · COMISSÕES ════════════════════════════ #}
+<div data-etapa="1" {% if etapa != '1' %}hidden{% endif %}>
+  <div class="grid-two">
+    <section class="surface" aria-labelledby="t-comissao">
+      <div class="section-top">
+        <h2 id="t-comissao">Comissão por dia</h2>
+        <small>Soma automática na comissão bruta</small>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Data</th><th>Dia</th><th class="num">Comissão (R$)</th></tr></thead>
+          <tbody>
+            {% for d in dias %}
+            <tr class="{{ 'muted-row' if d.weekday() == 0 }}">
+              <td class="nowrap"><label for="com-{{ d.isoformat() }}">{{ d | data }}</label></td>
+              <td>{{ d | dia_semana }}</td>
+              <td class="num" style="width:45%">
+                <input id="com-{{ d.isoformat() }}" name="comissao_{{ d.isoformat() }}" value="{{ comissoes[d] | brl(false) if comissoes.get(d) else '' }}"
+                       inputmode="decimal" class="pdv-input num" placeholder="0,00" autocomplete="off">
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="row mt-24">
+        <button type="button" class="btn primary" data-ir-etapa="2">Definir equipe</button>
+        <button type="submit" class="btn ghost">Salvar rascunho</button>
+      </div>
+    </section>
+
+    <aside class="surface" aria-labelledby="t-param">
+      <h2 id="t-param">Parâmetros da quinzena</h2>
+      {{ ui.field('comissao_bruta', 'Comissão bruta (12%)', periodo.comissao_bruta | brl(false), 'text', True, id='p-comissao',
+                  ajuda='Preenchida pela soma dos dias; pode ser ajustada.', attrs='inputmode="decimal" class="num"') }}
+      {{ ui.field('percentual_encargos', 'Encargos (%)', ('%g' | format((periodo.percentual_encargos * 100) | float)) | replace('.', ','), 'text', True, id='p-encargos',
+                  attrs='inputmode="decimal"') }}
+      <dl class="pairs mb-16">
+        <div><dt>Total líquido a ratear</dt><dd>{{ resultado.total_liquido | brl }}</dd></div>
+        <div><dt>Cálculo</dt><dd>{{ 'Rateio diário' if resultado.modo == 'diario' else 'Simplificado (sem grade diária)' }}</dd></div>
+      </dl>
+      <details class="expand" open>
+        <summary>{{ ui.icon('chevron-right') }}Rateio por setor</summary>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Setor</th><th class="num">Pool</th><th class="num">Pago</th><th>Status</th></tr></thead>
+            <tbody>
+              {% for s in setores %}
+              {% set st = resultado.status_setor(s.nome) %}
+              <tr>
+                <td>{{ s.nome }}<small>{{ (s.percentual_rateio * 100) | round(0) | int }}%</small></td>
+                <td class="num">{{ resultado.pools.get(s.nome, 0) | brl }}</td>
+                <td class="num">{{ resultado.pago_por_setor.get(s.nome, 0) | brl }}</td>
+                <td>{{ ui.badge(st, 'green' if st == 'OK' else 'red') }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if resultado.redistribuido > 0 %}<p class="help">Setor sem presença em algum dia: {{ resultado.redistribuido | brl }} redistribuído.</p>{% endif %}
+        <p class="help">Valores do último salvamento.</p>
+      </details>
+    </aside>
   </div>
-  <a href="{{ url_for('gorjetas.listar') }}" class="text-sm text-bangalo-600 hover:underline">‹ Todas as quinzenas</a>
 </div>
 
-{# ────────────────────────────────────────────────────────────────────
-   FORM PRINCIPAL: parâmetros + PDV + grade de presença + descontos manuais
-   NÃO aninhar <form> aqui dentro — os botões de desativar ficam no card
-   "Gerenciar colaboradores" (fora deste form).
-   ──────────────────────────────────────────────────────────────────── #}
-<form method="post" action="{{ url_for('gorjetas.salvar', periodo_id=periodo.id) }}" id="form-principal">
-<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+{# ════════════════════════════ 2 · PRESENÇAS ════════════════════════════ #}
+<div data-etapa="2" {% if etapa != '2' %}hidden{% endif %}>
+  {% call ui.notice() %}
+    <p>Desmarque quem não fez parte desta quinzena. A função e o setor gravados aqui valem
+       <strong>só para esta quinzena</strong> — mudar a função de alguém hoje não reescreve o passado.
+       Trocar a função ajusta os pontos automaticamente; dá para corrigir o valor se precisar.</p>
+  {% endcall %}
 
-<!-- ── Parâmetros + Rateio por setor ──────────────────────────────── -->
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-  <div class="bg-white rounded-2xl border border-borda p-5">
-    <h2 class="text-sm font-semibold mb-3">Parâmetros da quinzena</h2>
-    <label class="block text-xs text-gray-500 mb-1" for="p-comissao">Comissão bruta (12% · soma automática do PDV)</label>
-    <input id="p-comissao" name="comissao_bruta" value="{{ periodo.comissao_bruta }}"
-           inputmode="decimal" class="w-full rounded-lg border border-borda px-3 py-2 text-sm mb-3 font-semibold">
-    <label class="block text-xs text-gray-500 mb-1" for="p-encargos">Desconto de encargos (%)</label>
-    <input id="p-encargos" name="percentual_encargos" value="{{ (periodo.percentual_encargos * 100) | round(2) }}"
-           inputmode="decimal" class="w-full rounded-lg border border-borda px-3 py-2 text-sm">
-    <p class="text-xs text-gray-400 mt-3">Total líquido a ratear:
-      <span class="font-semibold text-tinta">{{ resultado.total_liquido | brl }}</span>
-    </p>
-    <p class="text-xs text-gray-400 mt-1">Engine: <span class="font-medium">{{ 'rateio diário' if resultado.modo == 'diario' else 'rateio simplificado (sem grade diária)' }}</span></p>
-  </div>
-
-  <div class="bg-white rounded-2xl border border-borda p-5 lg:col-span-2">
-    <h2 class="text-sm font-semibold mb-3">Rateio por setor</h2>
-    <table class="w-full text-sm">
+  <div class="table-wrap">
+    <table class="table responsive" id="tabela-equipe">
       <thead>
-        <tr class="text-left text-xs text-gray-400 border-b border-borda">
-          <th class="py-1.5">Setor</th>
-          <th class="py-1.5 num">% Rateio</th>
-          <th class="py-1.5 num">Pool</th>
-          <th class="py-1.5 num">Pago aos colaboradores</th>
-          <th class="py-1.5 text-center">Status</th>
-        </tr>
+        <tr><th>Participa</th><th>Colaborador</th><th>Função nesta quinzena</th><th>Setor</th><th class="num">Pontos</th></tr>
       </thead>
       <tbody>
-        {% for s in setores %}
-        <tr class="border-b border-borda/60">
-          <td class="py-2 font-medium">{{ s.nome }}</td>
-          <td class="py-2 num text-gray-500">{{ (s.percentual_rateio * 100) | round(0) | int }}%</td>
-          <td class="py-2 num">{{ resultado.pools.get(s.nome, 0) | brl }}</td>
-          <td class="py-2 num">{{ resultado.pago_por_setor.get(s.nome, 0) | brl }}</td>
-          <td class="py-2 text-center">
-            {% set st = resultado.status_setor(s.nome) %}
-            <span class="px-2 py-0.5 rounded-full text-xs {{ 'bg-green-50 text-ok' if st == 'OK' else 'bg-red-50 text-erro' }}">{{ st }}</span>
+        {% for linha in equipe %}
+        {% set c = linha.colaborador %}
+        <tr>
+          <td data-label="Participa">
+            <input type="hidden" name="equipe_ids" value="{{ c.id }}" {{ F | safe }}>
+            <label class="check mb-0">
+              <input type="checkbox" name="participa_{{ c.id }}" value="1" {{ 'checked' if linha.participa }} {{ F | safe }}>
+              <span class="sr-only">{{ c.nome }} participa desta quinzena</span>
+            </label>
+          </td>
+          <td data-label="Colaborador" class="wrap strong">{{ c.nome }}
+            {% if not c.ativo %}{{ ui.badge('Inativo no cadastro') }}{% endif %}
+            <small>{{ c.registro }}</small>
+          </td>
+          <td data-label="Função">
+            <label class="sr-only" for="fn-{{ c.id }}">Função de {{ c.nome }} nesta quinzena</label>
+            <select id="fn-{{ c.id }}" name="funcao_{{ c.id }}" class="sel-funcao"
+                    data-colab="{{ c.id }}" {{ F | safe }}>
+              {% for f in funcoes %}
+                <option value="{{ f.id }}" data-setor="{{ f.setor_id }}" data-pontos="{{ f.pontos_padrao }}"
+                        {{ 'selected' if f.id == linha.funcao_id }}>{{ f.nome }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td data-label="Setor">
+            <label class="sr-only" for="st-{{ c.id }}">Setor de {{ c.nome }} nesta quinzena</label>
+            <select id="st-{{ c.id }}" name="setor_{{ c.id }}" class="sel-setor" data-colab="{{ c.id }}" {{ F | safe }}>
+              {% for st in setores %}<option value="{{ st.id }}" {{ 'selected' if st.id == linha.setor_id }}>{{ st.nome }}</option>{% endfor %}
+            </select>
+          </td>
+          <td data-label="Pontos" class="num">
+            <label class="sr-only" for="pt-{{ c.id }}">Pontos de {{ c.nome }} nesta quinzena</label>
+            <input id="pt-{{ c.id }}" name="pontos_{{ c.id }}" class="num sel-pontos" data-colab="{{ c.id }}"
+                   value="{{ linha.pontos | brl(false) if linha.pontos is not none else '' }}"
+                   inputmode="decimal" placeholder="padrão da função" {{ F | safe }}>
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
-    {% if resultado.redistribuido > 0 %}
-      <p class="text-xs text-alerta mt-2">Setor sem presença: {{ resultado.redistribuido | brl }} redistribuído aos demais setores.</p>
+  </div>
+  <div class="row mt-16" style="justify-content:space-between">
+    {% if pode_editar %}
+      <span class="caption">Alguém de fora da lista? Use “Cadastro e vínculos” abaixo.</span>
+      <button type="submit" form="form-principal" class="btn primary" id="salvar-equipe"
+              data-proxima-etapa="3">{{ ui.icon('save') }}Salvar equipe e ver presenças</button>
     {% endif %}
-    <div class="flex flex-wrap gap-6 mt-3 text-sm">
-      <p>Total descontos: <span class="font-semibold">{{ resultado.total_descontos | brl }}</span></p>
-      <p>Total a pagar: <span class="font-semibold text-bangalo-700">{{ resultado.total_a_pagar | brl }}</span></p>
-    </div>
   </div>
+
 </div>
 
-<!-- ── Comissão por dia (PDV) ──────────────────────────────────────── -->
-<div class="bg-white rounded-2xl border border-borda p-5 mb-6 overflow-x-auto">
-  <h2 class="text-sm font-semibold mb-1">Comissão por dia (PDV)
-    <span class="text-xs font-normal text-gray-400 ml-2">Valores somam automaticamente no campo Comissão bruta</span>
-  </h2>
-  <table class="text-xs min-w-full mt-3">
-    <tr>
-      {% for d in dias %}<th class="px-2 py-1 font-medium text-gray-500">{{ d.day }}<br><span class="font-normal">{{ d | dia_semana }}</span></th>{% endfor %}
-    </tr>
-    <tr>
-      {% for d in dias %}
-      <td class="px-1 py-1">
-        <input name="comissao_{{ d.isoformat() }}" value="{{ comissoes.get(d, '') }}"
-               inputmode="decimal"
-               class="pdv-input w-20 rounded border border-borda px-1.5 py-1 text-right"
-               aria-label="Comissão de {{ d | data }}">
-      </td>
-      {% endfor %}
-    </tr>
-  </table>
-</div>
-
-<!-- ── Grade de presença ───────────────────────────────────────────── -->
-<div class="bg-white rounded-2xl border border-borda p-5 mb-6 overflow-x-auto">
-  <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
-    <h2 class="text-sm font-semibold">Presença por dia <span class="font-normal text-gray-400">(marcado = trabalhou)</span></h2>
-    <div class="flex gap-2">
-      <button type="button" onclick="toggleTodos(true)"
-              class="px-3 py-1.5 text-xs rounded-lg border border-bangalo-400 text-bangalo-700 hover:bg-bangalo-50">
-        Marcar todos
-      </button>
-      <button type="button" onclick="toggleTodos(false)"
-              class="px-3 py-1.5 text-xs rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50">
-        Desmarcar todos
-      </button>
+<div data-etapa="3" {% if etapa != '3' %}hidden{% endif %}>
+  {% call ui.notice() %}<p>Marcado = trabalhou. A presença é mantida ao alternar etapas; só grava ao salvar.</p>{% endcall %}
+  <section class="surface" aria-labelledby="t-presenca">
+    <div class="section-top">
+      <h2 id="t-presenca">Presença por dia</h2>
+      <span class="row">
+        <button type="button" class="btn small" data-todos="1">Marcar todos</button>
+        <button type="button" class="btn small" data-todos="0">Desmarcar todos</button>
+      </span>
     </div>
-  </div>
-  <table class="text-xs min-w-full">
-    <thead>
-      <tr class="border-b border-borda text-left">
-        <th class="py-1.5 pr-3 min-w-[200px]">Colaborador</th>
-        {% for d in dias %}<th class="px-1.5 py-1.5 text-center font-medium text-gray-500">{{ d.day }}</th>{% endfor %}
-      </tr>
-    </thead>
-    <tbody>
-      {% for c in colaboradores %}
-      <tr class="border-b border-borda/60">
-        <td class="py-1.5 pr-3">
-          <button type="button" onclick="toggleColab({{ c.id }})"
-                  class="mr-1 text-bangalo-400 hover:text-bangalo-700 font-bold" title="Marcar/desmarcar todos os dias">↕</button>
-          {{ c.nome }}
-          <span class="text-gray-400">· {{ c.setor.nome }} · {{ c.pontos }} pts</span>
-        </td>
-        {% for d in dias %}
-        <td class="px-1.5 py-1.5 text-center">
-          <input type="checkbox" name="presenca_{{ c.id }}_{{ d.isoformat() }}"
-                 data-colab="{{ c.id }}"
-                 {{ 'checked' if presencas.get((c.id, d)) }}
-                 class="accent-bangalo-500" aria-label="{{ c.nome }} em {{ d | data }}">
-        </td>
-        {% endfor %}
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+    <div class="table-scroll" tabindex="0" role="region" aria-labelledby="t-presenca" style="max-height:calc(100vh - 280px)">
+      <table class="table grade">
+        <thead>
+          <tr>
+            <th scope="col">Colaborador</th>
+            {% for d in dias %}<th scope="col" class="center {{ 'weekend' if d.weekday() >= 5 }}">{{ '%02d' | format(d.day) }}<span class="caption" style="display:block">{{ d | dia_semana }}</span></th>{% endfor %}
+            <th scope="col" class="num">Dias</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for linha in equipe if linha.participa %}
+          {% set c = linha.colaborador %}
+          <tr>
+            <td>
+              <button type="button" class="btn ghost small" style="padding-left:0;text-align:left" data-linha="{{ c.id }}"
+                      aria-label="Marcar ou desmarcar todos os dias de {{ c.nome }}">{{ c.nome }}</button>
+              <small>{{ linha.setor.nome }} · {{ linha.funcao.nome }} · {{ linha.pontos | string | replace('.', ',') }} pts{% if c.registro != 'CLT' %} · {{ c.registro }}{% endif %}</small>
+            </td>
+            {% for d in dias %}
+            <td class="center {{ 'weekend' if d.weekday() >= 5 }}">
+              <input type="checkbox" name="presenca_{{ c.id }}_{{ d.isoformat() }}" data-colab="{{ c.id }}"
+                     {{ 'checked' if presencas.get((c.id, d)) }} aria-label="{{ c.nome }} em {{ d | data }}">
+            </td>
+            {% endfor %}
+            <td class="num" data-dias="{{ c.id }}"></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="row mt-24">
+      <button type="button" class="btn primary" data-ir-etapa="4">Continuar para ajustes</button>
+      <button type="submit" class="btn ghost">Salvar presenças</button>
+    </div>
+  </section>
 </div>
 
-<!-- ── Resultado do rateio + descontos manuais ────────────────────── -->
-<div class="bg-white rounded-2xl border border-borda p-5 mb-6 overflow-x-auto">
-  <h2 class="text-sm font-semibold mb-3">Resultado do rateio</h2>
-  <table class="min-w-full text-sm">
-    <thead>
-      <tr class="text-left text-xs text-gray-400 border-b border-borda">
-        <th class="py-1.5">Colaborador</th>
-        <th class="py-1.5">Setor · Função</th>
-        <th class="py-1.5 num">Pts</th>
-        <th class="py-1.5 num">Dias</th>
-        <th class="py-1.5 num">Bruto rateado</th>
-        <th class="py-1.5 num text-red-400">Desc. Setor</th>
-        <th class="py-1.5">Desc. Manual (R$ · motivo)</th>
-        <th class="py-1.5 num">Líquido</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in resultado.colaboradores %}
-      {% set part = participacoes.get(r.id) %}
-      <tr class="border-b border-borda/60">
-        <td class="py-2 font-medium">{{ r.nome }}</td>
-        <td class="py-2 text-gray-500 text-xs">{{ r.setor }} · {{ r.funcao }}</td>
-        <td class="py-2 num">{{ r.pontos }}</td>
-        <td class="py-2 num">{{ r.dias_trabalhados }}</td>
-        <td class="py-2 num">{{ r.bruto_rateado | brl }}</td>
-        <td class="py-2 num text-red-500">
-          {% if r.desconto_setor > 0 %}{{ r.desconto_setor | brl }}{% else %}–{% endif %}
-        </td>
-        <td class="py-2">
-          <div class="flex gap-1 items-center">
-            <input name="desconto_{{ r.id }}" value="{{ part.desconto if part and part.desconto else '' }}"
-                   placeholder="0,00" inputmode="decimal"
-                   class="w-20 rounded border border-borda px-1.5 py-1 text-right text-xs"
-                   aria-label="Desconto manual {{ r.nome }}">
-            <select name="motivo_{{ r.id }}" class="rounded border border-borda px-1 py-1 text-xs bg-white">
-              <option value="">motivo…</option>
-              {% for m in motivos_desconto %}
-                <option {{ 'selected' if part and part.desconto_motivo == m }}>{{ m }}</option>
-              {% endfor %}
-            </select>
-          </div>
-        </td>
-        <td class="py-2 num font-semibold {{ 'text-erro' if r.liquido < 0 }}">{{ r.liquido | brl }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+{# ════════════════════════════ 4 · CONFERÊNCIA ════════════════════════════ #}
+<div data-etapa="5" {% if etapa != '5' %}hidden{% endif %}>
+  <section class="metrics" aria-label="Resumo da quinzena">
+    {{ ui.metric('Líquido a distribuir', resultado.total_a_pagar | brl, 'Após encargos e descontos · último salvamento') }}
+    {{ ui.metric('Colaboradores', resultado.colaboradores | length, 'Com participação nesta quinzena') }}
+    {{ ui.metric('Situação', 'Aberta', 'Confira antes de fechar') }}
+  </section>
+  {% set com_saldo = resultado.saldo_setor.items() | selectattr('1.saldo') | list
+                     or resultado.saldo_setor.items() | selectattr('1.distribuido') | list %}
+  {% if com_saldo %}
+  <section class="surface" aria-labelledby="t-saldo">
+    <div class="section-top"><h2 id="t-saldo">Centavos guardados por setor</h2></div>
+    <p class="caption">O pool nem sempre divide certinho entre as pessoas do setor. O que sobra não
+       fica com o restaurante: vira saldo do setor e volta em partes iguais assim que der para
+       dividir — ninguém recebe um centavo a mais que o colega.</p>
+    <div class="table-wrap">
+      <table class="table responsive">
+        <thead><tr><th>Setor</th><th class="num">Vinha de antes</th><th class="num">Desta quinzena</th>
+          <th class="num">Devolvido agora</th><th class="num">Fica para a próxima</th></tr></thead>
+        <tbody>
+          {% for setor, m in resultado.saldo_setor.items() %}
+          {% if m.saldo or m.distribuido or m.gerado %}
+          <tr>
+            <td data-label="Setor" class="strong">{{ setor }}<small>{{ m.pessoas }} pessoa(s)</small></td>
+            <td data-label="Vinha de antes" class="num muted">{{ m.anterior | brl }}</td>
+            <td data-label="Desta quinzena" class="num {{ 'bad' if m.gerado < 0 }}">{{ m.gerado | brl }}</td>
+            <td data-label="Devolvido agora" class="num {{ 'good' if m.distribuido }}">{{ m.distribuido | brl }}</td>
+            <td data-label="Fica para a próxima" class="num strong">{{ m.saldo | brl }}</td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
 
-<div class="flex flex-wrap gap-3 mb-8">
-  <button type="submit" class="px-5 py-2 rounded-lg bg-bangalo-500 text-white text-sm hover:bg-bangalo-600">Salvar quinzena</button>
+  <section class="surface" aria-labelledby="t-conf">
+    <div class="section-top">
+      <h2 id="t-conf">Rateio por colaborador</h2>
+      {% include "gorjetas/_relatorios.html" %}
+    </div>
+    <div class="table-wrap">
+      <table class="table responsive">
+        <thead><tr><th>Colaborador</th><th>Setor</th><th class="num">Dias</th><th class="num">Bruto</th><th class="num">Descontos</th><th class="num">Líquido</th><th class="actions">Detalhe</th></tr></thead>
+        <tbody>
+          {% for r in resultado.colaboradores %}
+          {% set descontos = r.desconto + r.desconto_setor + r.desconto_extra %}
+          <tr>
+            <td data-label="Colaborador" class="wrap">{{ r.nome }}{% if r.em_ferias %} {{ ui.badge('Férias', 'orange') }}{% endif %}<small>{{ r.funcao }} · {{ r.registro }}</small></td>
+            <td data-label="Setor">{{ r.setor }}</td>
+            <td data-label="Dias" class="num">{{ r.dias_trabalhados }}</td>
+            <td data-label="Bruto" class="num">{{ r.bruto_rateado | brl }}</td>
+            <td data-label="Descontos" class="num">{{ (-descontos) | brl if descontos else '—' }}</td>
+            <td data-label="Líquido" class="num strong {{ 'bad' if r.liquido < 0 }}">{{ r.liquido | brl }}</td>
+            <td data-label="Detalhe" class="actions"><button type="button" class="btn ghost small" data-open="calc-{{ r.id }}">Ver cálculo</button></td>
+          </tr>
+          {% endfor %}
+          <tr class="total">
+            <td data-label="Total">Total</td><td></td><td></td><td></td>
+            <td data-label="Descontos" class="num">{{ (-resultado.total_descontos) | brl if resultado.total_descontos else '—' }}</td>
+            <td data-label="Líquido" class="num">{{ resultado.total_a_pagar | brl }}</td><td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    {% if resultado.extras %}
+    <p class="help mt-16">Extras: {{ resultado.total_extras_reposto | brl }} reposto pelos setores · {{ resultado.total_extras_restaurante | brl }} por conta do restaurante.</p>
+    {% endif %}
+    <div class="row mt-24">
+      {% if current_user.pode('gorjetas.fechar') %}
+        <button type="button" class="btn primary" data-open="dlg-fechar">Fechar quinzena</button>
+      {% endif %}
+      {% if pode_editar %}<button type="submit" class="btn ghost">Salvar rascunho</button>{% endif %}
+    </div>
+  </section>
 </div>
 </form>{# fim form-principal #}
 
-{# ────────────────────────────────────────────────────────────────────
-   DESCONTOS POR SETOR — forms separados (add + remove por linha)
-   ──────────────────────────────────────────────────────────────────── #}
-<div class="bg-white rounded-2xl border border-borda p-5 mb-6">
-  <h2 class="text-sm font-semibold mb-1">Descontos por Setor</h2>
-  <p class="text-xs text-gray-400 mb-4">Perdas, avarias, vales e descontos são distribuídos proporcionalmente ao bruto rateado de cada colaborador no setor (quem ganha mais, desconta mais).</p>
-
-  {% if periodo.descontos_setor %}
-  <table class="w-full text-sm mb-4">
-    <thead>
-      <tr class="text-left text-xs text-gray-400 border-b border-borda">
-        <th class="py-1.5">Setor</th>
-        <th class="py-1.5">Tipo</th>
-        <th class="py-1.5 num">Valor (R$)</th>
-        <th class="py-1.5">Observação</th>
-        <th class="py-1.5"></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% set ns = namespace(total=0) %}
-      {% for d in periodo.descontos_setor %}
-      {% set ns.total = ns.total + d.valor %}
-      <tr class="border-b border-borda/60">
-        <td class="py-2 font-medium">{{ d.setor.nome }}</td>
-        <td class="py-2 text-gray-600">{{ d.tipo }}</td>
-        <td class="py-2 num">{{ d.valor | brl }}</td>
-        <td class="py-2 text-gray-500 text-xs">{{ d.observacao or '' }}</td>
-        <td class="py-2">
-          <form method="post"
-                action="{{ url_for('gorjetas.desconto_setor_remover', periodo_id=periodo.id, desconto_id=d.id) }}"
-                onsubmit="return confirm('Remover este desconto?')">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="text-xs text-gray-400 hover:text-erro">Remover</button>
+<div data-etapa="2" {% if etapa != '2' %}hidden{% endif %}>
+  {# fora do form principal: formulário dentro de formulário quebra o envio #}
+{% if pode_editar %}
+  <section class="surface" aria-labelledby="t-equipe">
+    <details class="expand">
+      <summary id="t-equipe">{{ ui.icon('chevron-right') }}Cadastro e vínculos</summary>
+      <div class="grid-even mt-16">
+        <div>
+          <h3>Adicionar colaborador</h3>
+          <form method="post" action="{{ url_for('gorjetas.adicionar_colaborador', periodo_id=periodo.id) }}" data-busy="Adicionando…">
+            {{ ui.csrf() }}
+            {{ ui.field('nome', 'Nome', '', 'text', True, id='nc-nome', attrs='maxlength="120" autocomplete="off"') }}
+            <div class="field">
+              <label for="nc-funcao">Função <span class="required" aria-hidden="true">*</span></label>
+              <select id="nc-funcao" name="funcao_id" required>
+                <option value="">Selecione…</option>
+                {% for f in funcoes %}<option value="{{ f.id }}">{{ f.setor.nome }} · {{ f.nome }} ({{ f.pontos_padrao | string | replace('.', ',') }} pts)</option>{% endfor %}
+              </select>
+              <p class="help">O setor e os pontos vêm da função. Reativa o cadastro se o nome já existir.</p>
+            </div>
+            <button type="submit" class="btn">Adicionar à quinzena</button>
           </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-    <tfoot>
-      <tr class="border-t border-borda">
-        <td colspan="2" class="py-2 text-sm text-gray-500 font-medium">(−) Total descontos (volta ao restaurante)</td>
-        <td class="py-2 num text-sm font-semibold text-red-600">{{ ns.total | brl }}</td>
-        <td colspan="2"></td>
-      </tr>
-      <tr>
-        <td colspan="2" class="py-1 text-sm font-semibold text-gray-700">(=) Total distribuído aos funcionários</td>
-        <td class="py-1 num text-sm font-semibold text-bangalo-700">{{ resultado.total_a_pagar | brl }}</td>
-        <td colspan="2"></td>
-      </tr>
-    </tfoot>
-  </table>
-  {% else %}
-  <p class="text-xs text-gray-400 mb-4">Nenhum desconto registrado nesta quinzena.</p>
-  {% endif %}
-
-  <form method="post" action="{{ url_for('gorjetas.desconto_setor_add', periodo_id=periodo.id) }}"
-        class="flex flex-wrap gap-2 items-end border-t border-borda pt-4">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div>
-      <label class="block text-xs text-gray-500 mb-1">Setor</label>
-      <select name="setor_id" required class="rounded-lg border border-borda px-2 py-1.5 text-sm bg-white">
-        <option value="">Setor…</option>
-        {% for s in setores %}
-        <option value="{{ s.id }}">{{ s.nome }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div>
-      <label class="block text-xs text-gray-500 mb-1">Tipo</label>
-      <select name="tipo" required class="rounded-lg border border-borda px-2 py-1.5 text-sm bg-white">
-        <option value="">Tipo…</option>
-        {% for t in tipos_desconto_setor %}
-        <option value="{{ t }}">{{ t }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div>
-      <label class="block text-xs text-gray-500 mb-1">Valor (R$)</label>
-      <input name="valor" inputmode="decimal" placeholder="0,00" required
-             class="rounded-lg border border-borda px-2 py-1.5 text-sm w-28">
-    </div>
-    <div>
-      <label class="block text-xs text-gray-500 mb-1">Observação</label>
-      <input name="observacao" placeholder="Opcional"
-             class="rounded-lg border border-borda px-2 py-1.5 text-sm w-44">
-    </div>
-    <button type="submit"
-            class="px-4 py-1.5 rounded-lg bg-bangalo-500 text-white text-sm hover:bg-bangalo-600">
-      + Adicionar desconto
-    </button>
-  </form>
+        </div>
+        <div>
+          <h3>Ativos</h3>
+          <ul class="details-list">
+            {% for c in colaboradores %}
+            <li>
+              <span>{{ c.nome }}<small class="caption" style="display:block">{{ c.setor.nome }}</small></span>
+              <form method="post" action="{{ url_for('gorjetas.desativar_colaborador', periodo_id=periodo.id, colab_id=c.id) }}"
+                    data-confirm="Desativar {{ c.nome }}? Não aparece em novas quinzenas; o histórico continua.">
+                {{ ui.csrf() }}<button type="submit" class="btn ghost small">Desativar</button>
+              </form>
+            </li>
+            {% endfor %}
+          </ul>
+          {% if colaboradores_inativos %}
+          <h3 class="mt-24">Inativos</h3>
+          <ul class="details-list">
+            {% for c in colaboradores_inativos %}
+            <li>
+              <span>{{ c.nome }}<small class="caption" style="display:block">{{ c.setor.nome }}</small></span>
+              <form method="post" action="{{ url_for('gorjetas.adicionar_colaborador', periodo_id=periodo.id) }}">
+                {{ ui.csrf() }}<input type="hidden" name="nome" value="{{ c.nome }}"><input type="hidden" name="funcao_id" value="{{ c.funcao_id }}">
+                <button type="submit" class="btn ghost small">Reativar</button>
+              </form>
+            </li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+        </div>
+      </div>
+    </details>
+  </section>
+{% endif %}
 </div>
 
-{# ────────────────────────────────────────────────────────────────────
-   GERENCIAR COLABORADORES (forms separados — fora do form-principal)
-   ──────────────────────────────────────────────────────────────────── #}
-<details class="bg-white rounded-2xl border border-borda p-5 mb-6">
-  <summary class="text-sm font-semibold cursor-pointer select-none">Gerenciar colaboradores</summary>
-  <div class="mt-5 space-y-6">
 
-    <!-- Colaboradores ativos desta quinzena → desativar -->
-    <div>
-      <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Desativar colaborador</h3>
-      <p class="text-xs text-gray-400 mb-3">Colaboradores desativados não aparecem em novas quinzenas. O histórico não é afetado.</p>
-      <div class="flex flex-wrap gap-2">
-        {% for c in colaboradores %}
-        <form method="post" action="{{ url_for('gorjetas.desativar_colaborador', periodo_id=periodo.id, colab_id=c.id) }}"
-              onsubmit="return confirm('Desativar {{ c.nome }}?')">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit"
-                  class="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border border-red-200 text-red-600 hover:bg-red-50">
-            {{ c.nome }} <span class="text-gray-400">({{ c.setor.nome }})</span> ×
-          </button>
-        </form>
-        {% endfor %}
-      </div>
+{# ════════════════════════════ 3 · AJUSTES (fora do form) ════════════════════════════ #}
+<div data-etapa="4" {% if etapa != '4' %}hidden{% endif %}>
+  <section class="surface" aria-labelledby="t-setor">
+    <div class="section-top">
+      <h2 id="t-setor">Descontos por setor</h2>
+      {% if pode_editar %}<button type="button" class="btn" data-open="dlg-desconto-setor">{{ ui.icon('plus') }}Adicionar desconto</button>{% endif %}
     </div>
-
-    {% if colaboradores_inativos %}
-    <!-- Colaboradores inativos → reativar -->
-    <div>
-      <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Reativar colaborador</h3>
-      <div class="flex flex-wrap gap-2">
-        {% for c in colaboradores_inativos %}
-        <form method="post" action="{{ url_for('gorjetas.adicionar_colaborador', periodo_id=periodo.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="nome" value="{{ c.nome }}">
-          <input type="hidden" name="funcao_id" value="{{ c.funcao_id }}">
-          <button type="submit"
-                  class="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border border-dashed border-gray-300 text-gray-500 hover:border-bangalo-400 hover:text-bangalo-700">
-            + {{ c.nome }} <span class="text-gray-300">({{ c.setor.nome }})</span>
-          </button>
-        </form>
-        {% endfor %}
-      </div>
+    <p class="help">Perdas, avarias, vales e descontos do setor são distribuídos proporcionalmente ao bruto de cada colaborador.</p>
+    {% if periodo.descontos_setor %}
+    <div class="table-wrap">
+      <table class="table responsive">
+        <thead><tr><th>Setor</th><th>Motivo</th><th class="num">Valor</th><th>Observação</th><th class="actions">Ações</th></tr></thead>
+        <tbody>
+          {% for d in periodo.descontos_setor %}
+          <tr>
+            <td data-label="Setor">{{ d.setor.nome }}</td>
+            <td data-label="Motivo">{{ d.tipo }}</td>
+            <td data-label="Valor" class="num">{{ d.valor | brl }}</td>
+            <td data-label="Observação" class="wrap">{{ d.observacao or '—' }}</td>
+            <td data-label="Ações" class="actions">
+              <form method="post" action="{{ url_for('gorjetas.desconto_setor_remover', periodo_id=periodo.id, desconto_id=d.id) }}"
+                    data-confirm="Remover o desconto de {{ d.valor | brl }} do setor {{ d.setor.nome }}?">
+                {{ ui.csrf() }}<button type="submit" class="btn ghost small" style="color:var(--danger)">Remover</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
+    {% else %}
+      <p class="muted mb-0">Nenhum desconto por setor nesta quinzena.</p>
     {% endif %}
+  </section>
 
-    <!-- Novo colaborador -->
-    <div>
-      <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Adicionar novo colaborador</h3>
-      <form method="post" action="{{ url_for('gorjetas.adicionar_colaborador', periodo_id=periodo.id) }}"
-            class="flex flex-wrap gap-2 items-end">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <div>
-          <label class="block text-xs text-gray-500 mb-1">Nome</label>
-          <input name="nome" required placeholder="Nome completo"
-                 class="rounded-lg border border-borda px-2 py-1.5 text-sm w-52">
-        </div>
-        <div>
-          <label class="block text-xs text-gray-500 mb-1">Função</label>
-          <select name="funcao_id" required class="rounded-lg border border-borda px-2 py-1.5 text-sm bg-white w-56">
-            <option value="">Selecione…</option>
-            {% for f in funcoes %}
-            <option value="{{ f.id }}">{{ f.setor.nome }} – {{ f.nome }} ({{ f.pontos_padrao }} pts)</option>
-            {% endfor %}
-          </select>
-        </div>
-        <button type="submit"
-                class="px-4 py-1.5 rounded-lg bg-bangalo-500 text-white text-sm hover:bg-bangalo-600">
-          Adicionar
-        </button>
-      </form>
+  <section class="surface" aria-labelledby="t-individual">
+    <div class="section-top">
+      <h2 id="t-individual">Ajustes individuais</h2>
+      <small>Gravados junto com a quinzena</small>
     </div>
-  </div>
-</details>
-
-<!-- ── Fechar quinzena ─────────────────────────────────────────────── -->
-<form method="post" action="{{ url_for('gorjetas.fechar', periodo_id=periodo.id) }}"
-      onsubmit="return confirm('Fechar {{ periodo.referencia }}? Esta ação é IRREVERSÍVEL: o resultado vira histórico e não recalcula mais.')">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <div class="bg-bangalo-50 border border-bangalo-200 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-3">
-    <div>
-      <p class="text-sm font-semibold text-bangalo-800">Fechar quinzena</p>
-      <p class="text-xs text-gray-600">Grava o snapshot definitivo por colaborador (histórico auditável). Salve antes de fechar.</p>
+    <div class="table-wrap">
+      <table class="table responsive">
+        <thead><tr><th>Colaborador</th><th>Motivo</th><th class="num">Desconto (R$)</th><th>Férias</th></tr></thead>
+        <tbody>
+          {% for r in resultado.colaboradores %}
+          {% set part = participacoes.get(r.id) %}
+          <tr>
+            <td data-label="Colaborador" class="wrap">{{ r.nome }}<small>{{ r.setor }} · {{ r.funcao }}</small></td>
+            <td data-label="Motivo">
+              <label class="sr-only" for="mot-{{ r.id }}">Motivo do desconto de {{ r.nome }}</label>
+              <select id="mot-{{ r.id }}" name="motivo_{{ r.id }}" {{ F | safe }}>
+                <option value="">Sem desconto</option>
+                {% for m in motivos_desconto %}<option value="{{ m }}" {{ 'selected' if part and part.desconto_motivo == m }}>{{ m }}</option>{% endfor %}
+              </select>
+            </td>
+            <td data-label="Desconto" class="num">
+              <label class="sr-only" for="desc-{{ r.id }}">Valor do desconto de {{ r.nome }}</label>
+              <input id="desc-{{ r.id }}" name="desconto_{{ r.id }}" value="{{ part.desconto | brl(false) if part and part.desconto else '' }}"
+                     placeholder="0,00" inputmode="decimal" class="num" {{ F | safe }}>
+            </td>
+            <td data-label="Férias">
+              <input type="hidden" name="ferias_ids" value="{{ r.id }}" {{ F | safe }}>
+              <label class="check mb-0"><input type="checkbox" name="ferias_{{ r.id }}" value="1" {{ 'checked' if r.em_ferias }} {{ F | safe }}>De férias</label>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
-    <button type="submit" class="px-5 py-2 rounded-lg bg-bangalo-800 text-white text-sm hover:opacity-90">Fechar quinzena</button>
-  </div>
-</form>
+    <p class="help">De férias: o setor iguala o apurado da pessoa ao dos colegas (o acerto sai no relatório de férias).</p>
+    <div class="row mt-24">
+      <button type="button" class="btn primary" data-ir-etapa="5">Conferir rateio</button>
+      {% if pode_editar %}<button type="submit" form="form-principal" class="btn ghost">Salvar ajustes</button>{% endif %}
+    </div>
+  </section>
 
+  <section class="surface" aria-labelledby="t-extras">
+    <div class="section-top">
+      <h2 id="t-extras">Extras por diária</h2>
+      {% if pode_editar %}<button type="button" class="btn" data-open="dlg-extra">{{ ui.icon('plus') }}Adicionar extra</button>{% endif %}
+    </div>
+    <p class="help">Pessoa de fora paga pelo restaurante: o setor repõe só o que ela teria recebido no rateio daquele turno.</p>
+    {% if resultado.extras %}
+    <div class="table-wrap">
+      <table class="table responsive">
+        <thead><tr><th>Dia</th><th>Setor</th><th>Turno</th><th class="num">Pontos</th><th class="num">Comissão do turno</th><th class="num">Pago</th><th class="num">Reposto pelo setor</th><th class="actions">Ações</th></tr></thead>
+        <tbody>
+          {% for e in resultado.extras %}
+          {% set reg = periodo.extras[loop.index0] if periodo.extras | length > loop.index0 else none %}
+          <tr>
+            <td data-label="Dia">{{ e.data | data('%d/%m') }}</td>
+            <td data-label="Setor">{{ e.setor }}</td>
+            <td data-label="Turno">{{ e.turno or '—' }}</td>
+            <td data-label="Pontos" class="num">{{ e.pontos | string | replace('.', ',') }}</td>
+            <td data-label="Comissão" class="num">{{ e.comissao_turno | brl }}</td>
+            <td data-label="Pago" class="num">{{ e.pago_pelo_restaurante | brl }}</td>
+            <td data-label="Reposto" class="num">{{ e.reposto_pelo_setor | brl }}</td>
+            <td data-label="Ações" class="actions">
+              {% if reg and pode_editar %}
+              <form method="post" action="{{ url_for('gorjetas.extra_remover', periodo_id=periodo.id, extra_id=reg.id) }}"
+                    data-confirm="Remover o extra de {{ e.data | data('%d/%m') }}?">
+                {{ ui.csrf() }}<button type="submit" class="btn ghost small" style="color:var(--danger)">Remover</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <p class="muted mb-0">Nenhum extra nesta quinzena.</p>
+    {% endif %}
+  </section>
+
+  {% if pode_editar %}
+  {% endif %}
+</div>
+
+{# ════════════════════════════ Diálogos ════════════════════════════ #}
+{% for r in resultado.colaboradores %}
+{% call ui.dialog('calc-' ~ r.id, 'Cálculo de ' ~ r.nome, 'drawer') %}
+  <div class="dialog-body">
+    <p class="caption">{{ periodo.referencia }} · {{ r.setor }} · {{ r.funcao }} · {{ r.registro }}</p>
+    <div class="metric-value">{{ r.liquido | brl }}</div>
+    <ul class="details-list">
+      <li><span>Pontos × dias trabalhados</span><span class="num">{{ r.pontos | string | replace('.', ',') }} × {{ r.dias_trabalhados }}</span></li>
+      <li><span>Bruto rateado</span><span class="num">{{ r.bruto_rateado | brl }}</span></li>
+      <li><span>(−) Desconto do setor</span><span class="num">{{ (-r.desconto_setor) | brl if r.desconto_setor else '—' }}</span></li>
+      <li><span>(−) Desconto individual</span><span class="num">{{ (-r.desconto) | brl if r.desconto else '—' }}</span></li>
+      <li><span>(−) Reposição de extras</span><span class="num">{{ (-r.desconto_extra) | brl if r.desconto_extra else '—' }}</span></li>
+      <li><span>(±) Acerto de férias</span><span class="num">{{ r.reembolso_ferias | brl if r.reembolso_ferias else '—' }}</span></li>
+      <li class="strong"><span>Líquido a pagar</span><span class="num">{{ r.liquido | brl }}</span></li>
+    </ul>
+    <p class="help mt-16">Rateio diário: a comissão de cada dia é dividida pelo setor entre os pontos de quem estava presente.</p>
+  </div>
+  <div class="dialog-actions"><button type="button" class="btn primary" data-close>Voltar à conferência</button></div>
+{% endcall %}
+{% endfor %}
+
+{% if current_user.pode('gorjetas.editar') %}
+{% call ui.dialog('dlg-desconto-setor', 'Adicionar desconto por setor', 'drawer') %}
+  <form method="post" action="{{ url_for('gorjetas.desconto_setor_add', periodo_id=periodo.id) }}" id="form-desc-setor" class="dialog-body" data-busy="Salvando…">
+    {{ ui.csrf() }}
+    <p class="caption">Salve a quinzena antes: adicionar recarrega a página.</p>
+    <div class="field">
+      <label for="ds-setor">Setor <span class="required" aria-hidden="true">*</span></label>
+      <select id="ds-setor" name="setor_id" required><option value="">Selecione…</option>{% for s in setores %}<option value="{{ s.id }}">{{ s.nome }}</option>{% endfor %}</select>
+    </div>
+    {{ ui.field('tipo', 'Motivo', '', 'select', True, opcoes=[('', 'Selecione…')] + (tipos_desconto_setor | list), id='ds-tipo') }}
+    {{ ui.field('valor', 'Valor (R$)', '', 'text', True, id='ds-valor', attrs='inputmode="decimal" placeholder="0,00"') }}
+    {{ ui.field('observacao', 'Observação', '', 'text', id='ds-obs', attrs='maxlength="255"') }}
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-desc-setor" class="btn primary">Adicionar desconto</button>
+  </div>
+{% endcall %}
+{% endif %}
+
+{% if current_user.pode('gorjetas.editar') %}
+{% call ui.dialog('dlg-extra', 'Adicionar extra por diária', 'drawer') %}
+  <form method="post" action="{{ url_for('gorjetas.extra_add', periodo_id=periodo.id) }}" id="form-extra" class="dialog-body" data-busy="Salvando…">
+    {{ ui.csrf() }}
+    <p class="caption">Salve a quinzena antes: adicionar recarrega a página. Campos com * são obrigatórios.</p>
+    <div class="field">
+      <label for="ex-setor">Setor <span class="required" aria-hidden="true">*</span></label>
+      <select id="ex-setor" name="setor_id" required>{% for s in setores %}<option value="{{ s.id }}" {{ 'selected' if s.nome == 'Cozinha' }}>{{ s.nome }}</option>{% endfor %}</select>
+    </div>
+    {{ ui.field('data', 'Dia', periodo.data_inicio.isoformat(), 'date', True, id='ex-data',
+                attrs='min="' ~ periodo.data_inicio.isoformat() ~ '" max="' ~ periodo.data_fim.isoformat() ~ '"') }}
+    {{ ui.field('turno', 'Turno trabalhado', '', 'select', opcoes=[('Noite', 'Noite'), ('Dia', 'Dia'), ('Dia e noite', 'Dia e noite')], id='ex-turno') }}
+    {{ ui.field('pontos', 'Pontos atribuídos ao extra', '1,5', 'text', True, id='ex-pontos', attrs='inputmode="decimal"') }}
+    {{ ui.field('comissao_turno', 'Comissão do turno (R$)', '', 'text', True, id='ex-comissao', ajuda='Comissão do dia ou do turno em que o extra trabalhou.', attrs='inputmode="decimal" placeholder="0,00"') }}
+    {{ ui.field('valor_pago', 'Diária paga pelo restaurante (R$)', '150,00', 'text', True, id='ex-pago', attrs='inputmode="decimal"') }}
+    {{ ui.field('observacao', 'Nome do extra / observação', '', 'text', id='ex-obs', attrs='maxlength="255"') }}
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-extra" class="btn primary">Adicionar extra</button>
+  </div>
+{% endcall %}
+{% endif %}
+
+{% if current_user.pode('gorjetas.fechar') %}
+{% call ui.dialog('dlg-fechar', 'Fechar ' ~ periodo.referencia) %}
+  <form method="post" action="{{ url_for('gorjetas.fechar', periodo_id=periodo.id) }}" id="form-fechar" class="dialog-body" data-busy="Fechando…">
+    {{ ui.csrf() }}
+    {% call ui.notice('warn') %}<p>Esta ação é irreversível: o resultado vira histórico e não recalcula mais. Salve as alterações antes de fechar.</p>{% endcall %}
+    <dl class="pairs">
+      <div><dt>Total a pagar</dt><dd>{{ resultado.total_a_pagar | brl }}</dd></div>
+      <div><dt>Colaboradores</dt><dd>{{ resultado.colaboradores | length }}</dd></div>
+    </dl>
+    <p class="help mt-16" id="aviso-nao-salvo" hidden>Há alterações não salvas nesta página. Elas não entram no fechamento.</p>
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close autofocus>Cancelar</button>
+    <button type="submit" form="form-fechar" class="btn primary">Fechar quinzena</button>
+  </div>
+{% endcall %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
 <script>
-// ── PDV auto-sum → comissão bruta ───────────────────────────────────
-// Valores vindos do BD estão em formato Python ("1234.56"); valores
-// digitados pelo usuário podem estar em formato BR ("1.234,56" ou "1234,56").
-function _parseNum(s) {
-  s = (s || '').trim();
-  if (!s) return 0;
-  if (s.indexOf(',') >= 0) {
-    // BR: ponto é separador de milhar, vírgula é decimal
-    return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0;
+(function () {
+  const principal = document.getElementById('form-principal');
+
+  // ── Etapas: só troca a visibilidade; nenhum campo sai do formulário ──
+  function irPara(n) {
+    document.querySelectorAll('[data-etapa]').forEach(el => { el.hidden = el.dataset.etapa !== n; });
+    document.querySelectorAll('[data-etapa-link]').forEach(a => {
+      const ativo = a.dataset.etapaLink === n;
+      a.classList.toggle('active', ativo);
+      if (ativo) a.setAttribute('aria-current', 'step'); else a.removeAttribute('aria-current');
+    });
+    document.getElementById('campo-etapa').value = n;
+    document.getElementById('etapa-subtitulo').textContent = document.querySelector('[data-etapa-link="' + n + '"]').dataset.subtitulo;
+    const url = new URL(window.location.href); url.searchParams.set('etapa', n);
+    history.replaceState(null, '', url.pathname + url.search);
+    document.querySelector('h1').focus({ preventScroll: true });
+    window.scrollTo({ top: 0 });
   }
-  // Padrão/Python: ponto é decimal
-  return parseFloat(s) || 0;
-}
-function somarPDV() {
-  var total = 0;
-  document.querySelectorAll('.pdv-input').forEach(function(inp) {
-    total += _parseNum(inp.value);
-  });
-  document.getElementById('p-comissao').value = total.toFixed(2).replace('.', ',');
-}
-document.querySelectorAll('.pdv-input').forEach(function(inp) {
-  inp.addEventListener('input', somarPDV);
-});
+  document.querySelectorAll('[data-etapa-link]').forEach(a => a.addEventListener('click', ev => { ev.preventDefault(); irPara(a.dataset.etapaLink); }));
+  document.querySelectorAll('[data-ir-etapa]').forEach(b => b.addEventListener('click', () => irPara(b.dataset.irEtapa)));
+  // botão que salva e avança: diz ao servidor em qual etapa reabrir a tela
+  document.querySelectorAll('[data-proxima-etapa]').forEach(b => b.addEventListener('click', () => {
+    document.getElementById('campo-etapa').value = b.dataset.proximaEtapa;
+  }));
+  document.querySelector('h1').setAttribute('tabindex', '-1');
 
-// ── Presença: marcar/desmarcar todos ───────────────────────────────
-function toggleTodos(marcar) {
-  document.querySelectorAll('input[type=checkbox][data-colab]').forEach(function(cb) {
-    cb.checked = marcar;
-  });
-}
+  // ── Equipe: a função define setor e pontos (dá para corrigir os pontos) ──
+  document.querySelectorAll('.sel-funcao').forEach(sel => sel.addEventListener('change', () => {
+    const op = sel.selectedOptions[0];
+    if (!op) return;
+    const id = sel.dataset.colab;
+    const setor = document.querySelector('.sel-setor[data-colab="' + id + '"]');
+    const pontos = document.querySelector('.sel-pontos[data-colab="' + id + '"]');
+    if (setor && op.dataset.setor) setor.value = op.dataset.setor;
+    if (pontos && op.dataset.pontos) {
+      pontos.value = String(op.dataset.pontos).replace('.', ',');
+    }
+    // trocar a função é um jeito de dizer que a pessoa está na quinzena
+    const participa = document.querySelector('input[name="participa_' + id + '"]');
+    if (participa) participa.checked = true;
+  }));
 
-// ── Presença: marcar/desmarcar linha de um colaborador ─────────────
-function toggleColab(colabId) {
-  var cbs = document.querySelectorAll('input[type=checkbox][data-colab="' + colabId + '"]');
-  var algumMarcado = Array.prototype.some.call(cbs, function(cb) { return cb.checked; });
-  cbs.forEach(function(cb) { cb.checked = !algumMarcado; });
-}
+  // ── Soma da comissão por dia → comissão bruta ──
+  function num(s) {
+    s = (s || '').trim();
+    if (!s) return 0;
+    return s.indexOf(',') >= 0 ? (parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0) : (parseFloat(s) || 0);
+  }
+  document.querySelectorAll('.pdv-input').forEach(inp => inp.addEventListener('input', () => {
+    let total = 0;
+    document.querySelectorAll('.pdv-input').forEach(i => { total += num(i.value); });
+    document.getElementById('p-comissao').value = total.toFixed(2).replace('.', ',');
+  }));
+
+  // ── Presença: contagem de dias, linha e todos ──
+  function contar(id) {
+    const el = document.querySelector('[data-dias="' + id + '"]');
+    if (el) el.textContent = document.querySelectorAll('input[data-colab="' + id + '"]:checked').length;
+  }
+  const ids = new Set(Array.from(document.querySelectorAll('input[data-colab]')).map(c => c.dataset.colab));
+  ids.forEach(contar);
+  document.addEventListener('change', ev => { if (ev.target.dataset.colab) contar(ev.target.dataset.colab); });
+  document.querySelectorAll('[data-linha]').forEach(b => b.addEventListener('click', () => {
+    const caixas = document.querySelectorAll('input[data-colab="' + b.dataset.linha + '"]');
+    const algum = Array.from(caixas).some(c => c.checked);
+    caixas.forEach(c => { c.checked = !algum; });
+    contar(b.dataset.linha); marcarSujo();
+  }));
+  document.querySelectorAll('[data-todos]').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('input[data-colab]').forEach(c => { c.checked = b.dataset.todos === '1'; });
+    ids.forEach(contar); marcarSujo();
+  }));
+
+  // ── Não perder alterações ao sair sem salvar ──
+  let sujo = false;
+  function marcarSujo() { sujo = true; const a = document.getElementById('aviso-nao-salvo'); if (a) a.hidden = false; }
+  document.addEventListener('input', ev => { if (ev.target.form === principal) marcarSujo(); });
+  document.addEventListener('change', ev => { if (ev.target.form === principal) marcarSujo(); });
+  principal.addEventListener('submit', () => { sujo = false; });
+  window.addEventListener('beforeunload', ev => { if (sujo) { ev.preventDefault(); ev.returnValue = ''; } });
+  document.querySelectorAll('form:not(#form-principal)').forEach(f => f.addEventListener('submit', ev => {
+    if (sujo && !confirm('Há alterações não salvas na quinzena (comissões, presenças ou ajustes). Continuar sem salvar?')) {
+      ev.preventDefault(); ev.stopImmediatePropagation();
+    } else { sujo = false; }
+  }, true));
+})();
 </script>
 {% endblock %}

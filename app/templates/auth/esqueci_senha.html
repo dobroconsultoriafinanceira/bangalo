@@ -1,21 +1,15 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Recuperar senha · Bangalô</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>body{background:#FAF7F2}</style>
-</head>
-<body class="min-h-screen flex items-center justify-center px-4">
-  <form method="post" class="w-full max-w-sm bg-white rounded-2xl shadow-sm border p-6 space-y-4" style="border-color:#E7E1D8">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <h1 class="text-lg font-semibold">Recuperar senha</h1>
-    <p class="text-sm text-gray-500">Informe seu e-mail; enviaremos um link de redefinição.</p>
-    <input name="email" type="email" required placeholder="seu@email.com"
-           class="w-full rounded-lg border px-3 py-2 text-sm" style="border-color:#E7E1D8">
-    <button class="w-full py-2.5 rounded-lg text-white text-sm" style="background:#CD5C27">Enviar link</button>
-    <p class="text-center text-xs"><a href="{{ url_for('auth.login') }}" class="text-gray-500 hover:underline">Voltar ao login</a></p>
-  </form>
-</body>
-</html>
+{% extends "auth/_layout.html" %}
+{% block titulo %}Recuperar senha{% endblock %}
+{% block conteudo %}
+<form method="post" class="surface" data-busy="Enviando…">
+  {{ ui.csrf() }}
+  <h1>Recuperar senha</h1>
+  <p class="auth-subtitle">Informe seu e-mail para solicitar um novo link de acesso.</p>
+  <div class="field">
+    <label for="email">E-mail <span class="required" aria-hidden="true">*</span></label>
+    <input id="email" name="email" type="email" required autofocus autocomplete="username">
+  </div>
+  <button type="submit" class="btn primary">Enviar link</button>
+  <p class="auth-footer mb-0"><a href="{{ url_for('auth.login') }}">Voltar para entrar</a></p>
+</form>
+{% endblock %}

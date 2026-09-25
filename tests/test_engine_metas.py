@@ -58,3 +58,44 @@ def test_pesos_do_dia():
     assert p.peso_do_dia(date(2026, 7, 7)) == Decimal("1.0")    # terça
     assert p.peso_do_dia(date(2026, 7, 4)) == Decimal("1.6")    # sábado
     assert p.peso_do_dia(date(2026, 7, 5)) == Decimal("1.4")    # domingo
+
+
+def test_feriado_na_segunda_aberto_entra_no_rateio():
+    """07/09/2026 (feriado numa segunda) aberto, com a folga trocada para 09/09."""
+    from datetime import date
+
+    p = m.Premissas()
+    meta = Decimal("336279.77")
+    metas = m.metas_diarias(2026, 9, meta, p,
+                            dias_fechados_extra={date(2026, 9, 9)},
+                            dias_abertos_extra={date(2026, 9, 7)})
+    assert metas[date(2026, 9, 7)] == metas[date(2026, 9, 1)]   # peso de terça/quarta
+    assert metas[date(2026, 9, 9)] == Decimal("0")              # folga trocada
+    assert metas[date(2026, 9, 14)] == Decimal("0")             # segunda comum segue fechada
+    assert abs(sum(metas.values()) - meta) <= Decimal("0.20")   # rateio não perde a meta do mês
+
+
+
+def test_soma_das_metas_diarias_fecha_com_a_meta_do_mes():
+    """O rateio exato tem dízima: a sobra de centavos volta para os dias."""
+    p = m.Premissas()
+    casos = [(2026, 9, Decimal("336279.77")), (2026, 2, Decimal("100000.00")),
+             (2026, 7, Decimal("287654.33")), (2026, 1, Decimal("0.07"))]
+    for ano, mes, meta in casos:
+        dias = m.metas_diarias(ano, mes, meta, p)
+        assert sum(dias.values(), Decimal("0")) == meta, (ano, mes)
+        # dia fechado (segunda, sem exceção) não recebe sobra
+        assert all(dias[d] == Decimal("0") for d in dias if d.weekday() == 0)
+
+
+
+def test_sobra_do_rateio_fica_em_um_centavo_por_dia():
+    """A sobra é espalhada: dias de mesmo peso não podem divergir mais de 1 centavo."""
+    p = m.Premissas()
+    dias = m.metas_diarias(2026, 9, Decimal("336279.77"), p)
+    por_peso: dict = {}
+    for d, valor in dias.items():
+        if valor:
+            por_peso.setdefault(p.peso_do_dia(d), []).append(valor)
+    for peso, valores in por_peso.items():
+        assert max(valores) - min(valores) <= Decimal("0.01"), peso

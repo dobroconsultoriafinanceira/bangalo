@@ -28,8 +28,8 @@ TIPOS_CATEGORIA = ("entrada", "saida")
 # Formas de pagamento das entradas operacionais (espelha o PDV/planilha)
 FORMAS_PAGAMENTO = (
     "Visa Crédito", "Master Card Crédito", "ELO Crédito", "Amex Crédito",
-    "ELO Débito", "Visa Electron Débito", "Maestro Débito", "Dinheiro",
-    "IFOOD", "99 FOOD", "PIX", "Outros/Acerto",
+    "ELO Débito", "Visa Eletron Débito", "Maestro Débito", "Dinheiro",
+    "IFOOD", "99 FOOD", "PIX", "Outros/Acertos",
 )
 
 

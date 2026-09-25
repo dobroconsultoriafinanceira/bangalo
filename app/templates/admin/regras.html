@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block titulo %}Regras bancárias{% endblock %}
+{% block conteudo %}
+{% set ativo = 'regras' %}
+{% set r = rascunho or {} %}
+{% call ui.page_header('Regras de classificação', 'Critério, categoria e alcance de cada regra do extrato bancário.') %}
+  <button type="button" class="btn primary" data-open="dlg-regra" data-reset data-titulo="Nova regra">{{ ui.icon('plus') }}Nova regra</button>
+{% endcall %}
+{% include "admin/_abas.html" %}
+
+{% call ui.notice() %}
+  <p>Estas regras classificam movimentos do extrato (não dão permissão a ninguém). Valem para movimentos não manuais, <strong>inclusive anteriores</strong>:
+    ao salvar, todo o extrato é reclassificado. A mesma regra também nasce na revisão do movimento, em “Criar ou atualizar regra”.</p>
+{% endcall %}
+
+<section class="surface" aria-labelledby="t-regras">
+  <h2 id="t-regras" class="sr-only">Regras</h2>
+  {% if regras %}
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Regra</th><th>Critério</th><th>Categoria</th><th>Movimentos</th><th>Situação</th><th class="actions">Ações</th></tr></thead>
+      <tbody>
+        {% for item in regras %}
+        {% set g = item.regra %}
+        <tr class="{{ 'muted-row' if not g.ativo }}">
+          <td data-label="Regra" class="wrap strong">{{ g.valor }}{% if g.observacao %}<small>{{ g.observacao }}</small>{% endif %}</td>
+          <td data-label="Critério" class="wrap">{{ item.criterio }}<small>{{ item.tipo }}</small></td>
+          <td data-label="Categoria" class="wrap">{{ item.categoria.nome if item.categoria else g.categoria }}{% if g.revisar %}<small>marca para revisar</small>{% endif %}</td>
+          <td data-label="Movimentos">{{ item.alcance }} hoje<small>não manuais, atuais e futuros</small></td>
+          <td data-label="Situação">{{ ui.badge('Ativa', 'green') if g.ativo else ui.badge('Inativa') }}</td>
+          <td data-label="Ações" class="actions">
+            <button type="button" class="btn small" data-open="dlg-regra" data-titulo="Editar regra"
+                    data-fill-id="{{ g.id }}" data-fill-campo="{{ g.campo }}" data-fill-valor="{{ g.valor }}" data-fill-tipo="{{ g.tipo or '' }}"
+                    data-fill-categoria="{{ g.categoria }}" data-fill-ativo="{{ '1' if g.ativo else '0' }}" data-fill-revisar="{{ '1' if g.revisar else '0' }}"
+                    data-fill-observacao="{{ g.observacao or '' }}">Editar</button>
+            <form method="post" action="{{ url_for('admin.regras_excluir', regra_id=g.id) }}"
+                  data-confirm="Excluir a regra “{{ g.valor }}”? Os {{ item.alcance }} movimento(s) que ela classifica voltam à classificação padrão.">
+              {{ ui.csrf() }}<button type="submit" class="btn ghost small" style="color:var(--danger)">Excluir</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    {{ ui.empty('Nenhuma regra cadastrada', 'Sem regras próprias o extrato usa só a classificação padrão. Crie aqui ou na revisão de um movimento.', 'list-checks') }}
+  {% endif %}
+</section>
+
+{% call ui.dialog('dlg-regra', 'Editar regra' if r.regra_id else 'Nova regra', 'drawer') %}
+  <form method="post" action="{{ url_for('admin.regras_previa') }}" id="form-regra" class="dialog-body" data-busy="Calculando alcance…">
+    {{ ui.csrf() }}<input type="hidden" name="id" value="{{ r.regra_id or '' }}">
+    <p class="caption">Campos com * são obrigatórios. Antes de gravar você vê quantos movimentos mudam.</p>
+    {{ ui.field('campo', 'Critério', r.campo or 'contraparte_nome', 'select', True, opcoes=campos.items() | list, id='rg-campo') }}
+    {{ ui.field('valor', 'Valor', r.valor or '', 'text', True, id='rg-valor', ajuda='CPF/CNPJ só números; nome e descrição ignoram maiúsculas e acentos.', attrs='maxlength="160" autocomplete="off"') }}
+    {{ ui.field('tipo', 'Movimentos', r.tipo or '', 'select', opcoes=tipos.items() | list, id='rg-tipo') }}
+    <div class="field">
+      <label for="rg-categoria">Categoria bancária <span class="required" aria-hidden="true">*</span></label>
+      <select id="rg-categoria" name="categoria" required>
+        <option value="">Selecione…</option>
+        {% for nome_bloco, cats in categorias_por_bloco %}
+          <optgroup label="{{ nome_bloco }}">{% for c in cats %}<option value="{{ c.codigo }}" {{ 'selected' if r.categoria == c.codigo }}>{{ c.nome }}</option>{% endfor %}</optgroup>
+        {% endfor %}
+      </select>
+    </div>
+    {{ ui.field('observacao', 'Observação', r.observacao or '', 'text', id='rg-obs', attrs='maxlength="255"') }}
+    <label class="check"><input type="checkbox" name="ativo" value="1" {{ 'checked' if (r.ativo if rascunho else true) }}>Regra ativa</label>
+    <label class="check"><input type="checkbox" name="revisar" value="1" {{ 'checked' if r.revisar }}>Marcar os movimentos como “para revisar”</label>
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-regra" class="btn primary">Ver alcance</button>
+  </div>
+{% endcall %}
+
+{% if rascunho and abrir == 'dlg-alcance' %}
+{% call ui.dialog('dlg-alcance', 'Confirmar regra') %}
+  <form method="post" action="{{ url_for('admin.regras_salvar') }}" id="form-confirmar" class="dialog-body" data-busy="Salvando e reclassificando…">
+    {{ ui.csrf() }}
+    {% for k in ('campo', 'valor', 'tipo', 'categoria', 'observacao') %}<input type="hidden" name="{{ k }}" value="{{ r[k] or '' }}">{% endfor %}
+    <input type="hidden" name="id" value="{{ r.regra_id or '' }}">
+    {% if r.ativo %}<input type="hidden" name="ativo" value="1">{% endif %}
+    {% if r.revisar %}<input type="hidden" name="revisar" value="1">{% endif %}
+    <dl class="pairs">
+      <div><dt>Critério</dt><dd>{{ campos[r.campo] }} “{{ r.valor }}”</dd></div>
+      <div><dt>Categoria</dt><dd>{{ categoria_nome or '—' }}</dd></div>
+    </dl>
+    {% if previa %}
+      {% call ui.notice('warn' if previa.mudam else '') %}
+        <p><strong>{{ previa.casam }}</strong> movimento(s) não manuais passam a ser classificados por esta regra; <strong>{{ previa.mudam }}</strong> mudam de categoria.
+          {% if previa.manuais %}{{ previa.manuais }} manual(is) casam, mas não são alterados.{% endif %}</p>
+      {% endcall %}
+      {% if previa.exemplos %}
+      <div class="table-wrap">
+        <table class="table"><thead><tr><th>Movimento</th><th>Categoria atual</th><th class="num">Valor</th></tr></thead>
+          <tbody>{% for mov, atual in previa.exemplos %}<tr><td class="wrap">{{ mov.data | data('%d/%m') }} · {{ mov.contraparte or mov.descricao }}</td><td class="wrap">{{ atual.nome if atual else mov.categoria_gerencial }}</td><td class="num">{{ mov.valor_com_sinal | brl }}</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+      {% if previa.mudam > previa.exemplos | length %}<p class="help">+ {{ previa.mudam - previa.exemplos | length }} outro(s).</p>{% endif %}
+      {% endif %}
+    {% else %}
+      {% call ui.notice() %}<p>Regra inativa: salvar não altera nenhum movimento agora.</p>{% endcall %}
+    {% endif %}
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-open="dlg-regra" data-trocar>Voltar e editar</button>
+    <button type="submit" form="form-confirmar" class="btn primary">Salvar regra</button>
+  </div>
+{% endcall %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if abrir %}
+<script>
+(function () { const d = document.getElementById('{{ abrir }}'); if (d) d.showModal(); })();
+</script>
+{% endif %}
+{% endblock %}

@@ -111,6 +111,7 @@ class PeriodoGorjeta(db.Model):
     presencas = relationship("Presenca", back_populates="periodo", cascade="all, delete-orphan")
     comissoes_diarias = relationship("ComissaoDiaria", back_populates="periodo", cascade="all, delete-orphan")
     descontos_setor = relationship("DescontoQuinzena", back_populates="periodo", cascade="all, delete-orphan")
+    extras = relationship("ExtraQuinzena", back_populates="periodo", cascade="all, delete-orphan")
     fechamentos = relationship("FechamentoGorjeta", back_populates="periodo")
 
     @property
@@ -134,6 +135,15 @@ class ParticipacaoPeriodo(db.Model):
     periodo_id: Mapped[int] = mapped_column(ForeignKey("periodo_gorjeta.id"), nullable=False)
     colaborador_id: Mapped[int] = mapped_column(ForeignKey("colaborador.id"), nullable=False)
     dias_trabalhados_manual: Mapped[int | None] = mapped_column(Integer)
+    # pontos valem POR QUINZENA: a tabela muda com o tempo (o ASG já valeu 0,5
+    # e hoje vale 1). Vazio = usa os pontos atuais do colaborador.
+    pontos: Mapped[Decimal | None] = mapped_column(Numeric(4, 2))
+    # de férias: não trabalha a quinzena e recebe o reembolso do próprio setor
+    em_ferias: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # função e setor VIGENTES na quinzena: quem mudou de função depois não pode
+    # reescrever o passado (o cadastro do colaborador só vale como padrão)
+    funcao_id: Mapped[int | None] = mapped_column(ForeignKey("funcao.id", ondelete="SET NULL"))
+    setor_id: Mapped[int | None] = mapped_column(ForeignKey("setor.id", ondelete="SET NULL"))
     desconto: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
     desconto_motivo: Mapped[str | None] = mapped_column(
         Enum(*MOTIVOS_DESCONTO, name="motivo_desconto", native_enum=False)
@@ -142,6 +152,8 @@ class ParticipacaoPeriodo(db.Model):
 
     periodo = relationship("PeriodoGorjeta", back_populates="participacoes")
     colaborador = relationship("Colaborador")
+    funcao = relationship("Funcao")
+    setor = relationship("Setor")
 
 
 class Presenca(db.Model):
@@ -195,6 +207,30 @@ class DescontoQuinzena(db.Model):
     setor = relationship("Setor")
 
 
+class ExtraQuinzena(db.Model):
+    """Pessoa de fora contratada por diária num turno.
+
+    O restaurante paga a diária; o setor repõe apenas o que o extra teria
+    recebido no rateio daquele turno, dividido por ponto entre quem estava
+    presente no dia (regra confirmada com a cliente em 16/09/2026).
+    """
+
+    __tablename__ = "extra_quinzena"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    periodo_id: Mapped[int] = mapped_column(ForeignKey("periodo_gorjeta.id"), nullable=False, index=True)
+    setor_id: Mapped[int] = mapped_column(ForeignKey("setor.id"), nullable=False)
+    data: Mapped[date] = mapped_column(Date, nullable=False)
+    turno: Mapped[str | None] = mapped_column(String(30))            # "Noite", "Dia e noite"
+    pontos: Mapped[Decimal] = mapped_column(Numeric(4, 2), nullable=False, default=Decimal("1.5"))
+    comissao_turno: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal("0"))
+    valor_pago: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal("0"))
+    observacao: Mapped[str | None] = mapped_column(String(255))
+
+    periodo = relationship("PeriodoGorjeta", back_populates="extras")
+    setor = relationship("Setor")
+
+
 class FechamentoGorjeta(db.Model):
     """Snapshot IMUTÁVEL gravado ao fechar a quinzena (aba Histórico).
 
@@ -214,7 +250,40 @@ class FechamentoGorjeta(db.Model):
     pontos: Mapped[Decimal] = mapped_column(Numeric(4, 2), nullable=False)
     dias_trabalhados: Mapped[int] = mapped_column(Integer, nullable=False)
     desconto: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
+    # parte do desconto de setor que coube a esta pessoa (proporcional ao bruto)
+    desconto_setor: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
+    desconto_extra: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
+    reembolso_ferias: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
     liquido_a_pagar: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     data_fechamento: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     periodo = relationship("PeriodoGorjeta", back_populates="fechamentos")
+
+
+class SaldoSetorQuinzena(db.Model):
+    """Centavos que não fecham no rateio de um setor, guardados para depois.
+
+    Quando o pool do setor não divide certinho entre as pessoas, a diferença
+    vira saldo do restaurante com aquele setor em vez de sumir — ninguém pode
+    receber um centavo a mais ou a menos que o colega com a mesma carga. O
+    saldo acumula e é devolvido quando dá para dividir em partes iguais.
+    """
+
+    __tablename__ = "saldo_setor_quinzena"
+    __table_args__ = (
+        UniqueConstraint("periodo_id", "setor_id", name="uq_saldo_setor_quinzena"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    periodo_id: Mapped[int] = mapped_column(
+        ForeignKey("periodo_gorjeta.id", ondelete="CASCADE"), nullable=False, index=True)
+    setor_id: Mapped[int] = mapped_column(ForeignKey("setor.id"), nullable=False, index=True)
+    anterior: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal("0"))
+    gerado: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal("0"))
+    distribuido: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal("0"))
+    saldo: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal("0"))
+    pessoas: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    periodo = relationship("PeriodoGorjeta")
+    setor = relationship("Setor")

@@ -1,0 +1,349 @@
+{% extends "base.html" %}
+{% block titulo %}Fechamento contábil{% endblock %}
+{% block conteudo %}
+{% set titulos = {'comparacao': ('DRE contábil', 'Comparar a previsão do sistema com o que a contabilidade enviou.'),
+                  'documentos': ('Documentos do fechamento', 'Conferir competência, origem e situação do razão e do DRE recebido.'),
+                  'razao': ('Razão detalhado', 'Rastrear a conta contábil até os lançamentos que a compõem.')} %}
+{% set pode_importar = current_user.pode('fechamento.importar_razao') %}
+{% set pode_conferir = current_user.pode('fechamento.conferir') %}
+{% set pode_aprovar = current_user.pode('fechamento.aprovar') %}
+{% set mes_importado = (ano, mes) in meses_importados %}
+
+{% call ui.page_header(titulos[aba][0], titulos[aba][1]) %}
+  {% if pode_importar %}
+    <button type="button" class="btn primary" data-open="dlg-importar">{{ ui.icon('file-up') }}Importar razão</button>
+  {% endif %}
+{% endcall %}
+
+{{ ui.tabs([
+  (url_for('dre.contabil', ano=ano, mes=mes), 'Comparação', aba == 'comparacao'),
+  (url_for('dre.contabil', ano=ano, mes=mes, aba='documentos'), 'Documentos', aba == 'documentos'),
+  (url_for('dre.contabil', ano=ano, mes=mes, aba='razao'), 'Razão', aba == 'razao'),
+], 'Seções do fechamento') }}
+
+<div class="toolbar" aria-label="Competência">
+  <a class="icon-btn" href="{{ url_for('dre.contabil', ano=ano_ant, mes=mes_ant, aba=aba if aba != 'comparacao' else none) }}" aria-label="Competência anterior">{{ ui.icon('chevron-left') }}</a>
+  <strong class="nowrap" style="min-width:140px;text-align:center">{{ mes_nome }} {{ ano }}</strong>
+  <a class="icon-btn" href="{{ url_for('dre.contabil', ano=ano_prox, mes=mes_prox, aba=aba if aba != 'comparacao' else none) }}" aria-label="Próxima competência">{{ ui.icon('chevron-right') }}</a>
+  <span class="push">{{ ui.badge('Razão importado', 'green') if mes_importado else ui.badge('Aguardando razão', 'amber') }}</span>
+</div>
+
+{% if aba == 'comparacao' %}
+{# ═══════════════════════════ COMPARAÇÃO ═══════════════════════════ #}
+{% set previsto = comparacao.previsto %}
+{% set real = comparacao.real %}
+<section class="metrics" aria-label="Resultado da competência">
+  {{ ui.metric('Resultado previsto', previsto.resultado | brl, 'Prévia do sistema · competência estimada', 'bad' if previsto.resultado < 0 else '') }}
+  {% if real %}
+    {{ ui.metric('Contabilidade', real.resultado | brl, 'Razão importado · ' ~ mes_nome ~ ' ' ~ ano, 'bad' if real.resultado < 0 else '') }}
+    {% set dif = real.resultado - previsto.resultado %}
+    {{ ui.metric('Diferença', dif | brl, 'Contabilidade menos previsão', 'warning-text' if dif | abs >= 1000 else '') }}
+  {% else %}
+    {{ ui.metric('Contabilidade', None, 'A contabilidade ainda não enviou este mês.') }}
+    {{ ui.metric('Diferença', None, 'Aparece depois de importar o razão') }}
+  {% endif %}
+</section>
+
+{% call ui.notice() %}
+  <p>A contabilidade trabalha por competência: lança a venda do mês (não o recebimento), calcula o CMV por estoque, provisiona férias e 13º
+    e inclui depreciação. A previsão parte dos números de caixa, aplica esses ajustes e foi calibrada com {{ previsto.calibrado_com }}.</p>
+{% endcall %}
+
+<section class="surface" aria-labelledby="t-comp">
+  <div class="section-top">
+    <h2 id="t-comp">Linha a linha</h2>
+    <small>Diferenças acima de R$ 1.000,00 ficam destacadas</small>
+  </div>
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Conta</th><th class="num">Prévia interna</th><th class="num">Contabilidade</th><th class="num">Diferença</th><th class="actions">Detalhe</th></tr></thead>
+      <tbody>
+        {% for l in comparacao.linhas %}
+        {% set grande = l.diferenca is not none and l.diferenca | abs >= 1000 %}
+        <tr class="{{ 'selected' if grande }}">
+          <td data-label="Conta" class="wrap">{{ l.rotulo }}</td>
+          <td data-label="Prévia" class="num">{{ l.previsto | brl }}</td>
+          <td data-label="Contabilidade" class="num">{{ l.real | brl if l.real is not none else '—' }}</td>
+          <td data-label="Diferença" class="num {{ 'warning-text strong' if grande }}">{{ l.diferenca | brl if l.diferenca is not none else '—' }}</td>
+          <td data-label="Detalhe" class="actions">
+            <button type="button" class="btn {{ '' if grande else 'ghost' }} small" data-open="dlg-linha-{{ loop.index }}">{{ 'Investigar' if grande else 'Ver composição' }}</button>
+          </td>
+        </tr>
+        {% endfor %}
+        {% for t in comparacao.totais %}
+        <tr class="total">
+          <td data-label="Conta">{{ t.rotulo }}</td>
+          <td data-label="Prévia" class="num">{{ t.previsto | brl }}</td>
+          <td data-label="Contabilidade" class="num">{{ t.real | brl if t.real is not none else '—' }}</td>
+          <td data-label="Diferença" class="num">{{ t.diferenca | brl if t.diferenca is not none else '—' }}</td>
+          <td></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="row mt-24">
+  {% if pode_conferir %}<button type="button" class="btn" data-open="dlg-faturamento">Informar faturamento</button>{% endif %}
+  <a href="{{ url_for('dre.contabil', ano=ano, mes=mes, aba='documentos') }}">Ver documentos</a>
+  <span class="caption push">Faturamento usado: {{ previsto.receita_bruta | brl }} · {{ previsto.faturamento_origem }}</span>
+</div>
+
+{% for l in comparacao.linhas %}
+{% call ui.dialog('dlg-linha-' ~ loop.index, 'Composição da conta', 'drawer') %}
+  <div class="dialog-body">
+    <p class="caption">DRE contábil · {{ mes_nome }} {{ ano }} · competência</p>
+    <p class="strong mb-0">{{ l.rotulo }}</p>
+    <dl class="pairs mt-16">
+      <div><dt>Prévia interna</dt><dd>{{ l.previsto | brl }}</dd></div>
+      <div><dt>Contabilidade</dt><dd>{{ l.real | brl if l.real is not none else '—' }}</dd></div>
+      <div><dt>Diferença</dt><dd>{{ l.diferenca | brl if l.diferenca is not none else '—' }}</dd></div>
+    </dl>
+    <h3 class="mt-24">Como a prévia foi calculada</h3>
+    <p class="help">{{ l.metodo }}</p>
+    {% if l.detalhe %}
+    <ul class="details-list">{% for rotulo, valor in l.detalhe %}<li><span>{{ rotulo }}</span><span class="num">{{ valor | brl }}</span></li>{% endfor %}</ul>
+    {% endif %}
+    {% if l.contas %}
+    <h3 class="mt-24">Contas do razão</h3>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Conta</th><th class="num">Valor</th></tr></thead>
+        <tbody>
+          {% for c in l.contas %}
+          <tr>
+            <td class="wrap"><a href="{{ url_for('dre.contabil', ano=ano, mes=mes, aba='razao', conta=c.conta) }}">{{ c.classificacao }} · {{ c.nome }}</a><small>{{ c.lancamentos }} lançamento(s)</small></td>
+            <td class="num">{{ c.valor | brl }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% elif not real %}
+    <p class="muted mt-16">As contas do razão aparecem depois que a contabilidade enviar este mês.</p>
+    {% endif %}
+  </div>
+  <div class="dialog-actions"><button type="button" class="btn primary" data-close>Voltar à comparação</button></div>
+{% endcall %}
+{% endfor %}
+
+{% if pode_conferir %}
+{% call ui.dialog('dlg-faturamento', 'Informar faturamento do mês') %}
+  <form method="post" action="{{ url_for('dre.contabil_faturamento') }}" id="form-faturamento" class="dialog-body" data-busy="Salvando…">
+    {{ ui.csrf() }}
+    <input type="hidden" name="ano" value="{{ ano }}"><input type="hidden" name="mes" value="{{ mes }}">
+    <p class="muted">Faturamento bruto do PDV em {{ mes_nome | lower }} de {{ ano }}. O sistema usa primeiro o <a href="{{ url_for('metas.registro_diario', ano=ano, mes=mes) }}">registro diário</a> e depois o histórico de faturamento; este campo só vale quando não existe nenhum dos dois.</p>
+    {{ ui.field('faturamento', 'Faturamento bruto (R$)', faturamento_informado or '', 'text', True, id='fat-valor',
+                ajuda='Ex.: 442.913,13', attrs='inputmode="decimal" autocomplete="off" autofocus') }}
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-faturamento" class="btn primary">Salvar faturamento</button>
+  </div>
+{% endcall %}
+{% endif %}
+
+{% elif aba == 'documentos' %}
+{# ═══════════════════════════ DOCUMENTOS ═══════════════════════════ #}
+<section class="surface" aria-labelledby="t-docs">
+  <div class="section-top">
+    <h2 id="t-docs">{{ mes_nome }} {{ ano }}</h2>
+    {% if pode_conferir %}<button type="button" class="btn" data-open="dlg-anexar">{{ ui.icon('paperclip') }}Anexar DRE (PDF)</button>{% endif %}
+  </div>
+  {% if documentos %}
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Documento</th><th>Competência</th><th>Recebido em</th><th>Situação</th><th class="actions">Ações</th></tr></thead>
+      <tbody>
+        {% for d in documentos %}
+        {% set tom = {'recebido': 'amber', 'conferido': 'orange', 'aprovado': 'green'}[d.situacao] %}
+        <tr class="{{ 'muted-row' if d.substituido_em }}">
+          <td data-label="Documento" class="wrap">
+            <a href="{{ url_for('dre.contabil_documento_arquivo', doc_id=d.id) }}" target="_blank" rel="noopener">{{ d.nome_arquivo }}</a>
+            <small>{{ d.rotulo_tipo }}{% if d.substituido_em %} · substituído em {{ d.substituido_em | data }}{% endif %}{% if d.observacao %} · {{ d.observacao }}{% endif %}</small>
+          </td>
+          <td data-label="Competência">{{ meses_pt[d.mes] }} {{ d.ano }}</td>
+          <td data-label="Recebido em">{{ d.recebido_em | data }}<small>{{ d.enviado_por.nome if d.enviado_por else '' }}</small></td>
+          <td data-label="Situação">
+            {{ ui.badge(d.situacao | capitalize, tom) }}
+            {% if d.aprovado_em %}<small>por {{ d.aprovado_por.nome if d.aprovado_por else '—' }} em {{ d.aprovado_em | data }}</small>
+            {% elif d.conferido_em %}<small>por {{ d.conferido_por.nome if d.conferido_por else '—' }} em {{ d.conferido_em | data }}</small>{% endif %}
+          </td>
+          <td data-label="Ações" class="actions">
+            <a class="btn small" href="{{ url_for('dre.contabil_documento_arquivo', doc_id=d.id, baixar=1) }}">Baixar</a>
+            {% if pode_conferir and not d.substituido_em %}
+              {% if d.situacao == 'recebido' %}
+                <form method="post" action="{{ url_for('dre.contabil_documento_situacao', doc_id=d.id) }}" data-busy="Salvando…">
+                  {{ ui.csrf() }}<input type="hidden" name="situacao" value="conferido"><button class="btn small">Marcar conferido</button>
+                </form>
+              {% elif d.situacao == 'conferido' and pode_aprovar %}
+                <form method="post" action="{{ url_for('dre.contabil_documento_situacao', doc_id=d.id) }}" data-busy="Salvando…">
+                  {{ ui.csrf() }}<input type="hidden" name="situacao" value="aprovado"><button class="btn small primary">Aprovar</button>
+                </form>
+              {% endif %}
+              {% if d.situacao == 'conferido' or (d.situacao == 'aprovado' and pode_aprovar) %}
+                <form method="post" action="{{ url_for('dre.contabil_documento_situacao', doc_id=d.id) }}"
+                      data-confirm="Voltar “{{ d.nome_arquivo }}” para recebido?">
+                  {{ ui.csrf() }}<input type="hidden" name="situacao" value="recebido"><button class="btn ghost small">Reabrir</button>
+                </form>
+              {% endif %}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    {{ ui.empty('Nenhum documento nesta competência', 'O razão importado fica guardado aqui automaticamente. Anexe também o DRE em PDF que a contabilidade enviar.', 'folder-open') }}
+  {% endif %}
+</section>
+{% call ui.notice('warn') %}<p>O razão identifica o mês no próprio arquivo. Reimportar substitui os dados dessa competência; o arquivo anterior continua guardado como substituído.</p>{% endcall %}
+
+{% if pode_conferir %}
+{% call ui.dialog('dlg-anexar', 'Anexar documento da contabilidade', 'drawer') %}
+  <form method="post" action="{{ url_for('dre.contabil_documento_enviar') }}" enctype="multipart/form-data" id="form-anexar" class="dialog-body" data-busy="Enviando…">
+    {{ ui.csrf() }}
+    <input type="hidden" name="ano" value="{{ ano }}"><input type="hidden" name="mes" value="{{ mes }}">
+    <p class="caption">Competência: {{ mes_nome }} {{ ano }}. Campos com * são obrigatórios.</p>
+    {{ ui.field('tipo', 'Tipo', 'dre_pdf', 'select', True, opcoes=[('dre_pdf', 'DRE da contabilidade (PDF)'), ('outro', 'Outro documento (PDF, XLS, XLSX, CSV)')], id='anx-tipo') }}
+    <div class="field">
+      <label for="anx-arquivo">Arquivo <span class="required" aria-hidden="true">*</span></label>
+      <input id="anx-arquivo" type="file" name="arquivo" accept=".pdf,.xls,.xlsx,.csv" required aria-describedby="anx-ajuda">
+      <p class="help" id="anx-ajuda">Até 20 MB. O arquivo fica guardado no sistema, com acesso só para usuários logados.</p>
+    </div>
+    {{ ui.field('observacao', 'Observação', '', 'textarea', id='anx-obs') }}
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-anexar" class="btn primary">Anexar</button>
+  </div>
+{% endcall %}
+{% endif %}
+
+{% else %}
+{# ═══════════════════════════ RAZÃO ═══════════════════════════ #}
+{% if contas %}
+<div class="grid-two" style="grid-template-columns:minmax(260px,.4fr) minmax(0,1fr)">
+  <section class="surface" aria-labelledby="t-contas">
+    <h2 id="t-contas">Contas de resultado</h2>
+    <form method="get" class="field">
+      <input type="hidden" name="ano" value="{{ ano }}"><input type="hidden" name="mes" value="{{ mes }}"><input type="hidden" name="aba" value="razao">
+      <label for="sel-conta">Conta</label>
+      <select id="sel-conta" name="conta" onchange="this.form.submit()">
+        {% for c in contas %}<option value="{{ c.conta }}" {{ 'selected' if conta_sel and c.conta == conta_sel.conta }}>{{ c.classificacao }} · {{ c.nome }}</option>{% endfor %}
+      </select>
+      <noscript><button class="btn mt-16">Ver conta</button></noscript>
+    </form>
+    <ul class="details-list">
+      {% for c in contas[:12] %}
+        <li><a href="{{ url_for('dre.contabil', ano=ano, mes=mes, aba='razao', conta=c.conta) }}" {% if conta_sel and c.conta == conta_sel.conta %}aria-current="true" class="strong"{% endif %}>{{ c.nome }}</a><span class="num">{{ c.valor | brl }}</span></li>
+      {% endfor %}
+    </ul>
+    {% if contas | length > 12 %}<p class="help">+ {{ contas | length - 12 }} conta(s) na lista acima.</p>{% endif %}
+  </section>
+
+  <section class="surface" aria-labelledby="t-conta">
+    {% if conta_sel %}
+    <div class="section-top">
+      <h2 id="t-conta">{{ conta_sel.nome }}</h2>
+      {{ ui.badge('Conta ' ~ conta_sel.classificacao) }}
+    </div>
+    <p class="muted">{{ mes_nome }} {{ ano }} · {{ lancamentos | length }} lançamento(s)</p>
+    {% if lancamentos %}
+    <div class="table-wrap">
+      <table class="table responsive">
+        <thead><tr><th>Data</th><th>Histórico</th><th class="num">Débito</th><th class="num">Crédito</th></tr></thead>
+        <tbody>
+          {% for l in lancamentos %}
+          <tr>
+            <td data-label="Data" class="nowrap">{{ l.data | data }}</td>
+            <td data-label="Histórico" class="wrap">{{ l.historico or '—' }}{% if l.contrapartida %}<small>Contrapartida {{ l.contrapartida }}</small>{% endif %}</td>
+            <td data-label="Débito" class="num">{{ l.debito | brl }}</td>
+            <td data-label="Crédito" class="num">{{ l.credito | brl }}</td>
+          </tr>
+          {% endfor %}
+          <tr class="total">
+            <td data-label="Total">Total da conta</td><td></td>
+            <td data-label="Débito" class="num">{{ lancamentos | sum(attribute='debito') | brl }}</td>
+            <td data-label="Crédito" class="num">{{ lancamentos | sum(attribute='credito') | brl }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="help mt-16">Valor na DRE contábil: {{ conta_sel.valor | brl }} (débitos menos créditos, com o sinal da linha).</p>
+    {% else %}
+      <p class="muted">Os lançamentos detalhados ficam disponíveis para razões importados a partir desta versão. Reimporte o razão de {{ mes_nome | lower }} para ver o histórico desta conta.</p>
+    {% endif %}
+    {% endif %}
+  </section>
+</div>
+{% else %}
+<section class="surface">
+  {{ ui.empty('Razão ainda não importado', 'Quando a contabilidade enviar o razão de ' ~ (mes_nome | lower) ~ ', importe o arquivo .xls para rastrear cada conta até os lançamentos.', 'book-open') }}
+</section>
+{% endif %}
+{% endif %}
+
+{# ═══════════════════════ Importar razão (2 passos) ═══════════════════════ #}
+{% if pode_importar %}
+{% call ui.dialog('dlg-importar', 'Importar razão da contabilidade', 'drawer') %}
+  <form method="post" action="{{ url_for('dre.contabil_razao_previa') }}" enctype="multipart/form-data" id="form-importar" class="dialog-body" data-busy="Lendo arquivo…">
+    {{ ui.csrf() }}
+    <input type="hidden" name="ano" value="{{ ano }}"><input type="hidden" name="mes" value="{{ mes }}">
+    <p class="muted">Envie o razão em <strong>.xls</strong> (ou .xlsx). A competência é lida do próprio arquivo; antes de gravar você confere o mês e o que será substituído.</p>
+    <div class="dropzone">
+      {{ ui.icon('file-spreadsheet') }}
+      <label for="imp-arquivo" class="strong" style="display:block">Arquivo do razão (.xls ou .xlsx) <span class="required" aria-hidden="true">*</span></label>
+      <input id="imp-arquivo" type="file" name="arquivo" accept=".xls,.xlsx" required>
+    </div>
+    {% if meses_importados %}<p class="help">Já importados: {% for a, m in meses_importados %}{{ meses_pt[m] | lower }}/{{ a }}{{ ', ' if not loop.last }}{% endfor %}.</p>{% endif %}
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-importar" class="btn primary">Continuar</button>
+  </div>
+{% endcall %}
+
+{% if previa %}
+{% call ui.dialog('dlg-previa', 'Substituir razão do mês' if previa.existente else 'Confirmar importação do razão') %}
+  <form method="post" action="{{ url_for('dre.contabil_razao') }}" id="form-previa" class="dialog-body" data-busy="Importando…">
+    {{ ui.csrf() }}
+    <input type="hidden" name="previa" value="{{ previa.token }}"><input type="hidden" name="nome" value="{{ previa.nome }}">
+    <input type="hidden" name="ano" value="{{ previa.ano }}"><input type="hidden" name="mes" value="{{ previa.mes }}">
+    {% if previa.existente %}
+      {% call ui.notice('warn') %}<p>Já há um razão para {{ meses_pt[previa.mes] | lower }} de {{ previa.ano }}. Importar novamente substituirá os dados dessa competência e recalibrará a previsão.</p>{% endcall %}
+    {% endif %}
+    <dl class="pairs">
+      <div><dt>Arquivo</dt><dd class="wrap">{{ previa.nome }}</dd></div>
+      <div><dt>Competência lida</dt><dd>{{ meses_pt[previa.mes] }} {{ previa.ano }}</dd></div>
+      <div><dt>Lançamentos</dt><dd>{{ previa.lancamentos }} ({{ previa.inicio | data('%d/%m') }} a {{ previa.fim | data('%d/%m') }})</dd></div>
+      <div><dt>Contas de resultado</dt><dd>{{ previa.contas }}</dd></div>
+      <div><dt>Receita bruta</dt><dd>{{ previa.receita_bruta | brl }}{% if previa.existente %}<small class="caption" style="display:block">hoje: {{ previa.existente.receita_bruta | brl }}</small>{% endif %}</dd></div>
+      <div><dt>Resultado</dt><dd>{{ previa.resultado | brl }}{% if previa.existente %}<small class="caption" style="display:block">hoje: {{ previa.existente.resultado | brl }}</small>{% endif %}</dd></div>
+    </dl>
+    <p class="help mt-16">O arquivo original fica guardado em Documentos para rastreabilidade.</p>
+  </form>
+  <div class="dialog-actions">
+    <a class="btn" href="{{ url_for('dre.contabil', ano=ano, mes=mes, aba=aba if aba != 'comparacao' else none) }}">Cancelar</a>
+    <button type="submit" form="form-previa" class="btn primary">{{ 'Substituir razão' if previa.existente else 'Importar razão' }}</button>
+  </div>
+{% endcall %}
+{% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if previa %}
+<script>
+(function () {
+  const d = document.getElementById('dlg-previa');
+  d.showModal();
+  // limpa ?previa= para um recarregamento não reabrir a confirmação
+  const url = new URL(window.location.href); url.searchParams.delete('previa'); url.searchParams.delete('nome');
+  history.replaceState(null, '', url.pathname + url.search);
+})();
+</script>
+{% endif %}
+{% endblock %}

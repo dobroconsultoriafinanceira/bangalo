@@ -1,193 +1,154 @@
 {% extends "base.html" %}
 {% block titulo %}Lançamentos{% endblock %}
 {% block conteudo %}
-<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-  <div>
-    <h1 class="text-2xl font-semibold">Lançamentos</h1>
-    <p class="text-sm text-gray-500">Todos os movimentos do fluxo de caixa</p>
-  </div>
-  <a href="{{ url_for('fluxo_caixa.visao_mensal_view') }}" class="px-3 py-1.5 rounded-lg border border-bangalo-500 text-bangalo-600 text-sm hover:bg-bangalo-50">Visão mensal</a>
-</div>
+{% set f_args = {} %}
+{% for k, v in filtros.items() if v %}{% set _ = f_args.update({k: v}) %}{% endfor %}
+{% set n_filtros = (f_args | length) - (1 if filtros.q else 0) %}
 
-<!-- Filtros -->
-<form method="get" class="bg-white rounded-2xl border border-borda p-4 mb-6 grid grid-cols-2 lg:grid-cols-6 gap-3 text-sm items-end">
-  <div>
-    <label class="block text-xs text-gray-500 mb-1" for="f-inicio">De</label>
-    <input id="f-inicio" type="date" name="inicio" value="{{ filtros.inicio or '' }}" class="w-full rounded-lg border border-borda px-2 py-1.5">
-  </div>
-  <div>
-    <label class="block text-xs text-gray-500 mb-1" for="f-fim">Até</label>
-    <input id="f-fim" type="date" name="fim" value="{{ filtros.fim or '' }}" class="w-full rounded-lg border border-borda px-2 py-1.5">
-  </div>
-  <div>
-    <label class="block text-xs text-gray-500 mb-1" for="f-grupo">Grupo</label>
-    <select id="f-grupo" name="grupo" class="w-full rounded-lg border border-borda px-2 py-1.5 bg-white">
-      <option value="">Todos</option>
-      {% for g in grupos %}<option {{ 'selected' if filtros.grupo == g }}>{{ g }}</option>{% endfor %}
-    </select>
-  </div>
-  <div>
-    <label class="block text-xs text-gray-500 mb-1" for="f-cat">Categoria</label>
-    <select id="f-cat" name="categoria_id" class="w-full rounded-lg border border-borda px-2 py-1.5 bg-white">
-      <option value="">Todas</option>
-      {% for c in categorias %}
-        <option value="{{ c.id }}" {{ 'selected' if filtros.categoria_id == c.id }}>{{ c.grupo }} · {{ c.nome }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div>
-    <label class="block text-xs text-gray-500 mb-1" for="f-forn">Fornecedor</label>
-    <select id="f-forn" name="fornecedor_id" class="w-full rounded-lg border border-borda px-2 py-1.5 bg-white">
-      <option value="">Todos</option>
-      {% for f in fornecedores %}
-        <option value="{{ f.id }}" {{ 'selected' if filtros.fornecedor_id == f.id }}>{{ f.nome }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <button class="px-4 py-1.5 rounded-lg bg-bangalo-500 text-white">Filtrar</button>
+{% call ui.page_header('Lançamentos', 'Filtrar, criar, editar e excluir lançamentos do fluxo de caixa.') %}
+  {% if current_user.pode('caixa.editar') %}<button type="button" class="btn primary" id="btn-novo" data-open="dlg-lancamento" data-reset data-titulo="Novo lançamento"
+          data-action="{{ url_for('fluxo_caixa.criar_lancamento') }}">{{ ui.icon('plus') }}Novo lançamento</button>{% endif %}
+{% endcall %}
+
+{{ ui.tabs([
+  (url_for('fluxo_caixa.visao_mensal_view'), 'Resumo', False),
+  (url_for('fluxo_caixa.visao_mensal_view', aba='grade'), 'Grade mensal', False),
+  (url_for('fluxo_caixa.lancamentos'), 'Lançamentos', True),
+  (url_for('fluxo_caixa.previstas'), 'Previstas', False),
+], 'Seções do caixa') }}
+
+<form method="get" class="toolbar" role="search">
+  {% for k, v in f_args.items() if k != 'q' %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+  <label class="sr-only" for="busca">Buscar lançamento, fornecedor ou categoria</label>
+  <input id="busca" class="search" type="search" name="q" value="{{ filtros.q or '' }}" placeholder="Buscar lançamento, fornecedor ou categoria…">
+  <button type="button" class="btn" data-open="dlg-filtros">{{ ui.icon('sliders-horizontal') }}Filtros{% if n_filtros %} · {{ n_filtros }}{% endif %}</button>
+  <span class="push caption">
+    {% if filtros.inicio or filtros.fim %}{{ (filtros.inicio | data) if filtros.inicio else 'Início' }} a {{ (filtros.fim | data) if filtros.fim else 'hoje' }}{% else %}Todos os períodos{% endif %}
+  </span>
 </form>
 
-<!-- Novo lançamento -->
-<details class="bg-white rounded-2xl border border-borda mb-6" {{ 'open' if not paginacao.items }}>
-  <summary class="px-5 py-3 cursor-pointer text-sm font-medium text-bangalo-700">+ Novo lançamento</summary>
-  <form method="post" action="{{ url_for('fluxo_caixa.criar_lancamento') }}"
-        class="px-5 pb-5 grid grid-cols-2 lg:grid-cols-7 gap-3 text-sm items-end">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div>
-      <label class="block text-xs text-gray-500 mb-1">Data</label>
-      <input type="date" name="data" required class="w-full rounded-lg border border-borda px-2 py-1.5">
+<section class="surface" aria-labelledby="t-lanc">
+  <h2 id="t-lanc" class="sr-only">Lançamentos encontrados</h2>
+  {% if paginacao.items %}
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead>
+        <tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Forma</th><th class="num">Valor</th><th class="actions">Ações</th></tr>
+      </thead>
+      <tbody>
+        {% for l in paginacao.items %}
+        {% set valor = l.valor if l.categoria.tipo == 'entrada' else -l.valor %}
+        <tr>
+          <td data-label="Data" class="nowrap">{{ l.data | data }}</td>
+          <td data-label="Descrição" class="wrap">
+            <span class="strong">{{ l.fornecedor.nome if l.fornecedor else (l.descricao or '—') }}</span>
+            {% if l.fornecedor and l.descricao %}<small>{{ l.descricao }}</small>{% endif %}
+          </td>
+          <td data-label="Categoria" class="wrap">{{ l.categoria.nome }}<small>{{ l.categoria.grupo }}</small></td>
+          <td data-label="Forma">{{ l.forma_pagamento or '—' }}</td>
+          <td data-label="Valor" class="num">{{ valor | brl }}</td>
+          <td data-label="Ações" class="actions">
+            {% if current_user.pode('caixa.editar') %}<button type="button" class="btn small" data-open="dlg-lancamento" data-titulo="Editar lançamento"
+              data-action="{{ url_for('fluxo_caixa.editar_lancamento', lanc_id=l.id) }}"
+              data-fill-data="{{ l.data.isoformat() }}" data-fill-categoria-id="{{ l.categoria_id }}"
+              data-fill-fornecedor-id="{{ l.fornecedor_id or '' }}" data-fill-forma-pagamento="{{ l.forma_pagamento or '' }}"
+              data-fill-valor="{{ ('%.2f' | format(l.valor)) | replace('.', ',') }}" data-fill-descricao="{{ l.descricao or '' }}"
+              aria-label="Editar lançamento de {{ l.data | data }}, {{ l.valor | brl }}">Editar</button>{% endif %}
+            {% if current_user.pode('caixa.editar') %}<button type="button" class="btn ghost small" style="color:var(--danger)" data-open="dlg-excluir"
+              data-action="{{ url_for('fluxo_caixa.excluir_lancamento', lanc_id=l.id) }}"
+              data-fill-resumo="{{ l.data | data }} · {{ l.categoria.nome }} · {{ l.valor | brl }}"
+              aria-label="Excluir lançamento de {{ l.data | data }}, {{ l.valor | brl }}">Excluir</button>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="table-meta">
+    <span>{{ paginacao.total }} lançamento(s){% if paginacao.pages > 1 %} · página {{ paginacao.page }} de {{ paginacao.pages }}{% endif %}</span>
+    {% if paginacao.pages > 1 %}
+    <nav class="pagination" aria-label="Paginação">
+      {% if paginacao.has_prev %}<a class="btn small" href="{{ url_for('fluxo_caixa.lancamentos', pagina=paginacao.prev_num, **f_args) }}" aria-label="Página anterior">‹</a>{% endif %}
+      {% for p in paginacao.iter_pages(left_edge=1, right_edge=1, left_current=1, right_current=2) %}
+        {% if p %}
+          {% if p == paginacao.page %}<span class="btn small current" aria-current="page">{{ p }}</span>
+          {% else %}<a class="btn small" href="{{ url_for('fluxo_caixa.lancamentos', pagina=p, **f_args) }}">{{ p }}</a>{% endif %}
+        {% else %}<span class="caption">…</span>{% endif %}
+      {% endfor %}
+      {% if paginacao.has_next %}<a class="btn small" href="{{ url_for('fluxo_caixa.lancamentos', pagina=paginacao.next_num, **f_args) }}" aria-label="Próxima página">›</a>{% endif %}
+    </nav>
+    {% endif %}
+  </div>
+  {% elif f_args %}
+    <div class="empty">
+      <div class="empty-icon">{{ ui.icon('search-x') }}</div>
+      <h2>Nenhum lançamento com esses filtros</h2>
+      <p>Os filtros ativos podem estar escondendo lançamentos existentes.</p>
+      <a class="btn" href="{{ url_for('fluxo_caixa.lancamentos') }}">Limpar filtros</a>
     </div>
-    <div class="lg:col-span-2">
-      <label class="block text-xs text-gray-500 mb-1">Categoria</label>
-      <select name="categoria_id" required class="w-full rounded-lg border border-borda px-2 py-1.5 bg-white">
-        <option value="">Selecione…</option>
-        {% for c in categorias %}
-          <option value="{{ c.id }}">{{ 'E' if c.tipo == 'entrada' else 'S' }} · {{ c.grupo }} · {{ c.nome }}</option>
+  {% else %}
+    <div class="empty">
+      <div class="empty-icon">{{ ui.icon('wallet') }}</div>
+      <h2>Nenhum lançamento ainda</h2>
+      <p>Os lançamentos vêm da planilha de fluxo sincronizada ou são registrados aqui manualmente.</p>
+    </div>
+  {% endif %}
+</section>
+
+{% call ui.dialog('dlg-filtros', 'Filtrar lançamentos', 'drawer') %}
+  <form method="get" id="form-filtros" class="dialog-body">
+    {% if filtros.q %}<input type="hidden" name="q" value="{{ filtros.q }}">{% endif %}
+    {{ ui.field('inicio', 'Data inicial', filtros.inicio or '', 'date', id='flt-inicio') }}
+    {{ ui.field('fim', 'Data final', filtros.fim or '', 'date', id='flt-fim') }}
+    <div class="field">
+      <label for="flt-grupo">Grupo</label>
+      <select id="flt-grupo" name="grupo">
+        <option value="">Todos</option>
+        {% for g in grupos %}<option value="{{ g }}" {{ 'selected' if filtros.grupo == g }}>{{ g }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="flt-categoria">Categoria</label>
+      <select id="flt-categoria" name="categoria_id">
+        <option value="">Todas</option>
+        {% for grupo, itens in categorias | groupby('grupo') %}
+          <optgroup label="{{ grupo }}">{% for c in itens %}<option value="{{ c.id }}" {{ 'selected' if filtros.categoria_id == c.id }}>{{ c.nome }}</option>{% endfor %}</optgroup>
         {% endfor %}
       </select>
     </div>
-    <div>
-      <label class="block text-xs text-gray-500 mb-1">Fornecedor</label>
-      <select name="fornecedor_id" class="w-full rounded-lg border border-borda px-2 py-1.5 bg-white">
-        <option value="">—</option>
-        {% for f in fornecedores %}<option value="{{ f.id }}">{{ f.nome }}</option>{% endfor %}
+    <div class="field">
+      <label for="flt-fornecedor">Fornecedor</label>
+      <select id="flt-fornecedor" name="fornecedor_id">
+        <option value="">Todos</option>
+        {% for fo in fornecedores %}<option value="{{ fo.id }}" {{ 'selected' if filtros.fornecedor_id == fo.id }}>{{ fo.nome }}</option>{% endfor %}
       </select>
-    </div>
-    <div>
-      <label class="block text-xs text-gray-500 mb-1">Forma pgto.</label>
-      <select name="forma_pagamento" class="w-full rounded-lg border border-borda px-2 py-1.5 bg-white">
-        <option value="">—</option>
-        {% for fp in formas_pagamento %}<option>{{ fp }}</option>{% endfor %}
-      </select>
-    </div>
-    <div>
-      <label class="block text-xs text-gray-500 mb-1">Valor (R$)</label>
-      <input name="valor" required placeholder="0,00" inputmode="decimal" class="w-full rounded-lg border border-borda px-2 py-1.5">
-    </div>
-    <div>
-      <label class="block text-xs text-gray-500 mb-1">Descrição</label>
-      <div class="flex gap-2">
-        <input name="descricao" class="flex-1 rounded-lg border border-borda px-2 py-1.5 min-w-0">
-        <button class="px-4 py-1.5 rounded-lg bg-bangalo-500 text-white shrink-0">Salvar</button>
-      </div>
     </div>
   </form>
-</details>
-
-<!-- Tabela -->
-<div class="bg-white rounded-2xl border border-borda overflow-x-auto">
-  <table class="min-w-full text-sm">
-    <thead>
-      <tr class="bg-creme border-b border-borda text-left">
-        <th class="px-4 py-2 font-semibold">Data</th>
-        <th class="px-4 py-2 font-semibold">Categoria</th>
-        <th class="px-4 py-2 font-semibold">Fornecedor</th>
-        <th class="px-4 py-2 font-semibold">Forma pgto.</th>
-        <th class="px-4 py-2 font-semibold">Descrição</th>
-        <th class="px-4 py-2 font-semibold num">Valor</th>
-        <th class="px-4 py-2"></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for l in paginacao.items %}
-      <tr class="border-b border-borda/60 hover:bg-creme/60">
-        <td class="px-4 py-2 whitespace-nowrap">{{ l.data | data }}</td>
-        <td class="px-4 py-2">
-          <span class="text-xs text-gray-400">{{ l.categoria.grupo }}</span><br>{{ l.categoria.nome }}
-        </td>
-        <td class="px-4 py-2">{{ l.fornecedor.nome if l.fornecedor else '—' }}</td>
-        <td class="px-4 py-2">{{ l.forma_pagamento or '—' }}</td>
-        <td class="px-4 py-2 text-gray-600">{{ l.descricao or '' }}</td>
-        <td class="px-4 py-2 num font-medium {{ 'text-ok' if l.categoria.tipo == 'entrada' else 'text-erro' }}">
-          {{ l.valor | brl }}
-        </td>
-        <td class="px-4 py-2 text-right whitespace-nowrap">
-          <button onclick="abrirEdicao({{ l.id }})" class="text-bangalo-600 hover:underline text-xs">Editar</button>
-          <form method="post" action="{{ url_for('fluxo_caixa.excluir_lancamento', lanc_id=l.id) }}" class="inline"
-                onsubmit="return confirm('Excluir este lançamento de {{ l.valor | brl }}?')">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="text-erro hover:underline text-xs ml-2">Excluir</button>
-          </form>
-        </td>
-      </tr>
-      <tr id="edicao-{{ l.id }}" class="hidden bg-bangalo-50/60 border-b border-borda">
-        <td colspan="7" class="px-4 py-3">
-          <form method="post" action="{{ url_for('fluxo_caixa.editar_lancamento', lanc_id=l.id) }}"
-                class="grid grid-cols-2 lg:grid-cols-7 gap-2 text-xs items-end">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="date" name="data" value="{{ l.data.isoformat() }}" required class="rounded-lg border border-borda px-2 py-1.5" aria-label="Data">
-            <select name="categoria_id" required class="lg:col-span-2 rounded-lg border border-borda px-2 py-1.5 bg-white" aria-label="Categoria">
-              {% for c in categorias %}
-                <option value="{{ c.id }}" {{ 'selected' if c.id == l.categoria_id }}>{{ c.grupo }} · {{ c.nome }}</option>
-              {% endfor %}
-            </select>
-            <select name="fornecedor_id" class="rounded-lg border border-borda px-2 py-1.5 bg-white" aria-label="Fornecedor">
-              <option value="">—</option>
-              {% for f in fornecedores %}
-                <option value="{{ f.id }}" {{ 'selected' if f.id == l.fornecedor_id }}>{{ f.nome }}</option>
-              {% endfor %}
-            </select>
-            <select name="forma_pagamento" class="rounded-lg border border-borda px-2 py-1.5 bg-white" aria-label="Forma de pagamento">
-              <option value="">—</option>
-              {% for fp in formas_pagamento %}
-                <option {{ 'selected' if fp == l.forma_pagamento }}>{{ fp }}</option>
-              {% endfor %}
-            </select>
-            <input name="valor" value="{{ l.valor }}" required class="rounded-lg border border-borda px-2 py-1.5" aria-label="Valor">
-            <div class="flex gap-2">
-              <input name="descricao" value="{{ l.descricao or '' }}" class="flex-1 rounded-lg border border-borda px-2 py-1.5 min-w-0" aria-label="Descrição">
-              <button class="px-3 py-1.5 rounded-lg bg-bangalo-500 text-white shrink-0">OK</button>
-            </div>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="7" class="px-4 py-8 text-center text-gray-400">Nenhum lançamento encontrado.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-<!-- Paginação -->
-{% if paginacao.pages > 1 %}
-<div class="flex items-center justify-between mt-4 text-sm">
-  <p class="text-gray-500">{{ paginacao.total }} lançamentos · página {{ paginacao.page }} de {{ paginacao.pages }}</p>
-  <div class="flex gap-2">
-    {% if paginacao.has_prev %}
-      <a href="{{ url_for('fluxo_caixa.lancamentos', pagina=paginacao.prev_num, **filtros) }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">‹ Anterior</a>
-    {% endif %}
-    {% if paginacao.has_next %}
-      <a href="{{ url_for('fluxo_caixa.lancamentos', pagina=paginacao.next_num, **filtros) }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">Próxima ›</a>
-    {% endif %}
+  <div class="dialog-actions">
+    <a class="btn" href="{{ url_for('fluxo_caixa.lancamentos') }}">Limpar</a>
+    <button type="submit" form="form-filtros" class="btn primary">Aplicar filtros</button>
   </div>
-</div>
-{% endif %}
+{% endcall %}
+
+{% if current_user.pode('caixa.editar') %}{% include "fluxo/_lancamento_dialogos.html" %}{% endif %}
 {% endblock %}
 
 {% block scripts %}
+{% if abrir_novo and current_user.pode('caixa.editar') %}
 <script>
-function abrirEdicao(id) {
-  document.getElementById('edicao-' + id).classList.toggle('hidden');
-}
+(function () {
+  // tira ?novo= da URL: depois de salvar, o retorno não reabre o painel
+  const url = new URL(window.location.href); url.searchParams.delete('novo');
+  history.replaceState(null, '', url.pathname + url.search);
+  document.getElementById('btn-novo').click();
+  {% if abrir_novo == 'dinheiro' %}
+  const dlg = document.getElementById('dlg-lancamento');
+  dlg.querySelector('.dialog-head h2').textContent = 'Entrada em dinheiro';
+  {% if categoria_dinheiro_id %}document.getElementById('lanc-categoria').value = '{{ categoria_dinheiro_id }}';{% endif %}
+  document.getElementById('lanc-forma').value = 'Dinheiro';
+  document.getElementById('lanc-valor').focus();
+  {% endif %}
+})();
 </script>
+{% endif %}
 {% endblock %}

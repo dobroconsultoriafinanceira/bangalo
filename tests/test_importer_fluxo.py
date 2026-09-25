@@ -20,10 +20,11 @@ from app.models.fluxo import Lancamento
 from app.seeds import seed_plano_contas, seed_setores_funcoes
 
 # Esqueleto com todas as âncoras que o importador procura (col A / col B).
-# (linha, colA, colB) — a linha 3 (Visa Crédito) recebe os valores dos testes.
+# (linha, colA, colB) — a linha 3 (Dinheiro) recebe os valores dos testes.
+# Cartão não entra mais pela planilha (fonte é a API da Stone): ver o teste no fim.
 ESQUELETO = [
     (2, "", "Saldo Inicial"),
-    (3, "Entradas", "Visa Crédito"),
+    (3, "Entradas", "Dinheiro"),
     (4, "Total Entradas", ""),
     (5, "Saídas", "DAS"),
     (6, "Total Impostos", ""),
@@ -90,17 +91,20 @@ def test_importer_ignora_subtotal_e_forca_ano(_seed, tmp_path):
     assert {l.data.isoformat() for l in lancs} == {"2026-01-01", "2026-01-02"}
 
 
-def test_importer_ignora_celula_texto(_seed, tmp_path):
+def test_importer_conta_celula_texto_numerica_e_avisa(_seed, tmp_path):
     caminho = _montar(tmp_path, [
-        (datetime(2024, 6, 1), 1000, 100),        # número -> entra
-        (datetime(2024, 6, 2), 1000, "284.87"),   # TEXTO -> ignorado
+        (datetime(2024, 6, 1), 1000, 100),          # número -> entra
+        (datetime(2024, 6, 2), 1000, "284.87"),     # TEXTO numérico -> entra e é listado
+        (datetime(2024, 6, 3), 1000, "1.234,56"),   # formato brasileiro
+        (datetime(2024, 6, 4), 1000, "ver nota"),   # texto de verdade -> ignorado
     ])
-    fluxo_importer.importar(caminho)
+    relatorio = fluxo_importer.importar(caminho)
     db.session.commit()
 
-    lancs = db.session.query(Lancamento).all()
-    assert len(lancs) == 1
-    assert lancs[0].valor == Decimal("100.00")
+    lancs = db.session.query(Lancamento).order_by(Lancamento.data).all()
+    assert [l.valor for l in lancs] == [Decimal("100.00"), Decimal("284.87"), Decimal("1234.56")]
+    aviso = next(linha for linha in relatorio if "TEXTO" in linha)
+    assert '"284.87"' in aviso and '"1.234,56"' in aviso
 
 
 def test_importer_pula_29_02(_seed, tmp_path):
@@ -126,7 +130,36 @@ def test_importer_layout_resiliente_a_insercao(_seed, tmp_path):
 
     fluxo_importer.importar(caminho)
     db.session.commit()
-    # Visa continua sendo importado corretamente mesmo com a linha inserida
+    # a linha de entrada continua sendo importada mesmo com a inserção
     lancs = db.session.query(Lancamento).all()
     assert len(lancs) == 1
     assert lancs[0].valor == Decimal("100.00")
+
+
+def test_planilha_nao_lanca_mais_cartao(tmp_path, _seed):
+    """Desde 23/09/2026 as linhas de cartão vêm da API da Stone.
+
+    A planilha continua trazendo a linha (o cliente ainda digita), mas o
+    importador a ignora — senão o mesmo dinheiro entraria duas vezes.
+    """
+    import openpyxl
+
+    from app.models.fluxo import Categoria
+
+    caminho = _montar(tmp_path, [(datetime(2026, 3, 2), 1000.0, 50.0)])
+    wb = openpyxl.load_workbook(caminho)
+    ws = wb["2026"]
+    ws.cell(row=LINHA_VISA, column=2, value="Visa Crédito")   # a linha 3 vira cartão
+    ws.cell(row=LINHA_VISA, column=3, value=4007.08)
+    wb.save(caminho)
+
+    fluxo_importer.importar(caminho)
+    db.session.commit()
+
+    visa = db.session.execute(
+        db.select(Categoria).filter_by(nome="Visa Crédito", tipo="entrada")
+    ).scalar_one_or_none()
+    lancados = db.session.execute(
+        db.select(Lancamento).filter(Lancamento.categoria_id == (visa.id if visa else 0))
+    ).scalars().all()
+    assert lancados == []

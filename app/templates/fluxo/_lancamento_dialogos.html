@@ -1,0 +1,54 @@
+{# Painéis de lançamento (novo/editar) e confirmação de exclusão — Caixa.
+   Espera: categorias, fornecedores, formas_pagamento, hoje. #}
+{% call ui.dialog('dlg-lancamento', 'Novo lançamento', 'drawer') %}
+  <form method="post" action="{{ url_for('fluxo_caixa.criar_lancamento') }}" id="form-lancamento"
+        class="dialog-body" data-busy="Salvando…" data-dynamic-action>
+    {{ ui.csrf() }}
+    <p class="caption">Campos com * são obrigatórios.</p>
+    {{ ui.field('data', 'Data', hoje.isoformat(), 'date', True, id='lanc-data') }}
+    <div class="field">
+      <label for="lanc-categoria">Categoria <span class="required" aria-hidden="true">*</span></label>
+      <select id="lanc-categoria" name="categoria_id" required>
+        <option value="">Selecione…</option>
+        {% for grupo, itens in categorias | groupby('grupo') %}
+          <optgroup label="{{ grupo }}">
+            {% for c in itens %}<option value="{{ c.id }}">{{ c.nome }}{{ ' (entrada)' if c.tipo == 'entrada' }}</option>{% endfor %}
+          </optgroup>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="lanc-fornecedor">Fornecedor</label>
+      <select id="lanc-fornecedor" name="fornecedor_id">
+        <option value="">Sem fornecedor</option>
+        {% for f in fornecedores %}<option value="{{ f.id }}">{{ f.nome }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="lanc-forma">Forma de pagamento</label>
+      <select id="lanc-forma" name="forma_pagamento">
+        <option value="">Não informada</option>
+        {% for fp in formas_pagamento %}<option value="{{ fp }}">{{ fp }}</option>{% endfor %}
+      </select>
+    </div>
+    {{ ui.field('valor', 'Valor (R$)', '', 'text', True, id='lanc-valor', ajuda='Use vírgula para centavos. Entrada ou saída depende da categoria.',
+                attrs='inputmode="decimal" placeholder="0,00" pattern="[0-9.,]+" autocomplete="off"') }}
+    {{ ui.field('descricao', 'Descrição', '', id='lanc-descricao', attrs='maxlength="255"') }}
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-lancamento" class="btn primary">Salvar</button>
+  </div>
+{% endcall %}
+
+{% call ui.dialog('dlg-excluir', 'Excluir lançamento') %}
+  <form method="post" id="form-excluir" class="dialog-body" data-busy="Excluindo…" data-dynamic-action>
+    {{ ui.csrf() }}
+    <p>Excluir o lançamento <strong data-slot="resumo"></strong>?</p>
+    {% call ui.notice('warn') %}<p>A exclusão fica registrada na auditoria e altera os saldos do caixa a partir desta data.</p>{% endcall %}
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close autofocus>Cancelar</button>
+    <button type="submit" form="form-excluir" class="btn danger">Excluir</button>
+  </div>
+{% endcall %}

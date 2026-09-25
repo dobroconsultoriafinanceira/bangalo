@@ -1,0 +1,12 @@
+{# Subnavegação da Administração. Espera: ativo #}
+<nav class="subnav" aria-label="Administração">
+  {% for chave, rotulo, endpoint in [
+    ('integracoes', 'Integrações', 'admin.integracoes'),
+    ('importacao', 'Importação', 'admin.importacao'),
+    ('usuarios', 'Usuários', 'admin.usuarios'),
+    ('regras', 'Regras bancárias', 'admin.regras'),
+    ('auditoria', 'Auditoria', 'admin.logs_auditoria'),
+  ] %}
+    <a href="{{ url_for(endpoint) }}" class="{{ 'active' if ativo == chave }}" {% if ativo == chave %}aria-current="page"{% endif %}>{{ rotulo }}</a>
+  {% endfor %}
+</nav>

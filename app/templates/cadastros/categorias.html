@@ -1,59 +1,60 @@
 {% extends "base.html" %}
-{% block titulo %}Plano de Contas{% endblock %}
+{% block titulo %}Plano de contas{% endblock %}
 {% block conteudo %}
-<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-  <div>
-    <h1 class="text-2xl font-semibold">Plano de Contas</h1>
-    <p class="text-sm text-gray-500">Categorias de entrada e saída do fluxo de caixa</p>
-  </div>
-  <nav class="flex gap-2 text-sm">
-    <a href="{{ url_for('cadastros.categorias') }}" class="px-3 py-1.5 rounded-lg bg-bangalo-500 text-white">Plano de contas</a>
-    <a href="{{ url_for('cadastros.fornecedores') }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">Fornecedores</a>
-    <a href="{{ url_for('cadastros.equipe') }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">Equipe</a>
-  </nav>
-</div>
+{% set ativo = 'categorias' %}
+{% call ui.page_header('Plano de contas', 'Categorias de entrada e saída do fluxo de caixa, agrupadas como na planilha.') %}
+  {% if current_user.pode('cadastros.editar') %}<button type="button" class="btn primary" data-open="dlg-categoria" data-reset data-titulo="Nova categoria">{{ ui.icon('plus') }}Categoria</button>{% endif %}
+{% endcall %}
+{% include "cadastros/_abas.html" %}
 
-<details class="bg-white rounded-2xl border border-borda mb-6">
-  <summary class="px-5 py-3 cursor-pointer text-sm font-medium text-bangalo-700">+ Nova categoria</summary>
-  <form method="post" action="{{ url_for('cadastros.salvar_categoria') }}"
-        class="px-5 pb-5 grid grid-cols-2 lg:grid-cols-6 gap-3 text-sm items-end">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div><label class="block text-xs text-gray-500 mb-1">Nome</label><input name="nome" required class="w-full rounded-lg border border-borda px-2 py-1.5"></div>
-    <div><label class="block text-xs text-gray-500 mb-1">Tipo</label>
-      <select name="tipo" class="w-full rounded-lg border border-borda px-2 py-1.5 bg-white">
-        {% for t in tipos %}<option value="{{ t }}">{{ 'Entrada' if t == 'entrada' else 'Saída' }}</option>{% endfor %}
-      </select>
-    </div>
-    <div><label class="block text-xs text-gray-500 mb-1">Grupo</label><input name="grupo" required class="w-full rounded-lg border border-borda px-2 py-1.5"></div>
-    <div><label class="block text-xs text-gray-500 mb-1">Subgrupo</label><input name="subgrupo" class="w-full rounded-lg border border-borda px-2 py-1.5"></div>
-    <label class="flex items-center gap-2"><input type="checkbox" name="ativo" checked class="accent-bangalo-500"> Ativo</label>
-    <button class="px-4 py-1.5 rounded-lg bg-bangalo-500 text-white">Salvar</button>
-  </form>
-</details>
+{% call ui.notice() %}<p>Estas categorias são do fluxo de caixa (lançamentos). A classificação do extrato bancário usa categorias próprias, em Movimentações.</p>{% endcall %}
 
 {% for nome_grupo, cats in grupos.items() %}
-<div class="mb-4">
-  <h2 class="text-sm font-semibold text-bangalo-800 mb-2">{{ nome_grupo }}</h2>
-  <div class="bg-white rounded-2xl border border-borda divide-y divide-borda/60">
-    {% for c in cats %}
-    <div class="flex items-center justify-between px-4 py-2 text-sm">
-      <span class="{{ '' if c.ativo else 'text-gray-400 line-through' }}">{{ c.nome }}{% if c.subgrupo %} <span class="text-xs text-gray-400">· {{ c.subgrupo }}</span>{% endif %}</span>
-      <details class="text-right">
-        <summary class="text-bangalo-600 hover:underline text-xs cursor-pointer list-none">Editar</summary>
-        <form method="post" action="{{ url_for('cadastros.salvar_categoria') }}" class="mt-2 flex flex-wrap gap-2 items-center">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="id" value="{{ c.id }}">
-          <input name="nome" value="{{ c.nome }}" class="rounded border border-borda px-2 py-1 text-xs">
-          <input type="hidden" name="tipo" value="{{ c.tipo }}">
-          <input name="grupo" value="{{ c.grupo }}" class="rounded border border-borda px-2 py-1 text-xs w-28">
-          <input name="subgrupo" value="{{ c.subgrupo or '' }}" class="rounded border border-borda px-2 py-1 text-xs w-24" placeholder="subgrupo">
-          <label class="flex items-center gap-1 text-xs"><input type="checkbox" name="ativo" {{ 'checked' if c.ativo }} class="accent-bangalo-500"> Ativo</label>
-          <button class="px-3 py-1 rounded bg-bangalo-500 text-white text-xs">OK</button>
-        </form>
-      </details>
-    </div>
-    {% endfor %}
+<section class="surface" aria-labelledby="g-{{ loop.index }}">
+  <div class="section-top">
+    <h2 id="g-{{ loop.index }}">{{ nome_grupo }}</h2>
+    <small>{{ cats | selectattr('ativo') | list | length }} ativa(s)</small>
   </div>
-</div>
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Categoria</th><th>Subgrupo</th><th>Situação</th><th class="actions">Ações</th></tr></thead>
+      <tbody>
+        {% for c in cats %}
+        <tr class="{{ 'muted-row' if not c.ativo }}">
+          <td data-label="Categoria" class="wrap strong">{{ c.nome }}</td>
+          <td data-label="Subgrupo">{{ c.subgrupo or '—' }}</td>
+          <td data-label="Situação">{{ ui.badge('Ativa', 'green') if c.ativo else ui.badge('Inativa') }}</td>
+          <td data-label="Ações" class="actions">
+            {% if current_user.pode('cadastros.editar') %}<button type="button" class="btn small" data-open="dlg-categoria" data-titulo="Editar categoria"
+                    data-fill-id="{{ c.id }}" data-fill-nome="{{ c.nome }}" data-fill-tipo="{{ c.tipo }}" data-fill-grupo="{{ c.grupo }}"
+                    data-fill-subgrupo="{{ c.subgrupo or '' }}" data-fill-ativo="{{ '1' if c.ativo else '0' }}">Editar</button>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% else %}
+<section class="surface">{{ ui.empty('Plano de contas vazio', 'As categorias vêm da planilha de fluxo ou do cadastro inicial do sistema.', 'list-tree') }}</section>
 {% endfor %}
+
+{% if current_user.pode('cadastros.editar') %}
+{% call ui.dialog('dlg-categoria', 'Nova categoria', 'drawer') %}
+  <form method="post" action="{{ url_for('cadastros.salvar_categoria') }}" id="form-categoria" class="dialog-body" data-busy="Salvando…">
+    {{ ui.csrf() }}<input type="hidden" name="id" value="">
+    <p class="caption">Campos com * são obrigatórios.</p>
+    {{ ui.field('nome', 'Nome', '', 'text', True, id='ca-nome', attrs='maxlength="120" autocomplete="off"') }}
+    {{ ui.field('tipo', 'Tipo', 'saida', 'select', True, opcoes=[('entrada', 'Entrada'), ('saida', 'Saída')], id='ca-tipo', ajuda='Atenção ao editar: mudar o tipo inverte o sinal de todos os lançamentos desta categoria.') }}
+    {{ ui.field('grupo', 'Grupo', '', 'text', True, id='ca-grupo', ajuda='Mesmo nome do grupo da planilha (ex.: Despesas Fixas).', attrs='maxlength="60" list="grupos-existentes"') }}
+    <datalist id="grupos-existentes">{% for g in grupos.values() | map('first') | map(attribute='grupo') | unique %}<option value="{{ g }}">{% endfor %}</datalist>
+    {{ ui.field('subgrupo', 'Subgrupo', '', 'text', id='ca-subgrupo', attrs='maxlength="60"') }}
+    <label class="check"><input type="checkbox" name="ativo" checked>Categoria ativa</label>
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-categoria" class="btn primary">Salvar</button>
+  </div>
+{% endcall %}
+{% endif %}
 {% endblock %}

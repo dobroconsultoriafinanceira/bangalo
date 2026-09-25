@@ -1,16 +1,17 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Erro {{ codigo }} · Bangalô</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="min-h-screen flex items-center justify-center" style="background:#FAF7F2">
-  <div class="text-center">
-    <p class="text-6xl font-bold" style="color:#CD5C27">{{ codigo }}</p>
-    <p class="mt-3 text-gray-600">{{ mensagem }}</p>
-    <a href="/" class="inline-block mt-6 px-5 py-2 rounded-lg text-white text-sm" style="background:#CD5C27">Voltar ao início</a>
-  </div>
-</body>
-</html>
+{% set titulos = {403: ('Acesso restrito', 'Você não tem permissão para esta área.', 'Voltar a uma área autorizada.'),
+                  404: ('Página não encontrada', 'Esta página não foi encontrada.', 'O endereço pode ter mudado. Volte ao início para continuar.'),
+                  500: ('Sistema indisponível', 'Não foi possível carregar esta página.', 'Tente novamente em instantes. Se continuar, informe o horário à administração.')} %}
+{% set t = titulos.get(codigo, ('Erro', mensagem, '')) %}
+{% extends "base.html" if current_user and current_user.is_authenticated else "auth/_layout.html" %}
+{% block titulo %}{{ t[0] }}{% endblock %}
+{% block conteudo %}
+{% if current_user and current_user.is_authenticated %}
+  {{ ui.page_header(t[0], 'Recuperar navegação sem exibir detalhes internos.') }}
+{% endif %}
+<div class="empty">
+  <div class="empty-code" aria-hidden="true">{{ codigo }}</div>
+  <h2>{{ t[1] }}</h2>
+  <p>{{ t[2] or mensagem }}</p>
+  <a class="btn primary" href="{{ url_for('dashboard.home') }}">Voltar ao início</a>
+</div>
+{% endblock %}

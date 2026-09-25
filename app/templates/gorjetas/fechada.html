@@ -1,58 +1,74 @@
 {% extends "base.html" %}
 {% block titulo %}{{ periodo.referencia }} (fechada){% endblock %}
 {% block conteudo %}
-<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-  <div>
-    <h1 class="text-2xl font-semibold">{{ periodo.referencia }}
-      <span class="align-middle ml-2 px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">Fechada</span>
-    </h1>
-    <p class="text-sm text-gray-500">
-      Snapshot imutável · comissão bruta {{ periodo.comissao_bruta | brl }} ·
-      encargos {{ periodo.percentual_encargos | pct }}
-    </p>
-  </div>
-  <a href="{{ url_for('gorjetas.listar') }}" class="text-sm text-bangalo-600 hover:underline">‹ Todas as quinzenas</a>
-</div>
-
 {% set total = fechamentos | sum(attribute='liquido_a_pagar') %}
-<div class="bg-white rounded-2xl border border-borda overflow-x-auto">
-  <table class="min-w-full text-sm">
-    <thead>
-      <tr class="bg-creme border-b border-borda text-left">
-        <th class="px-4 py-2 font-semibold">Colaborador</th>
-        <th class="px-4 py-2 font-semibold">Setor</th>
-        <th class="px-4 py-2 font-semibold">Função</th>
-        <th class="px-4 py-2 font-semibold">Registro</th>
-        <th class="px-4 py-2 font-semibold num">Pontos</th>
-        <th class="px-4 py-2 font-semibold num">Dias</th>
-        <th class="px-4 py-2 font-semibold num">Desconto</th>
-        <th class="px-4 py-2 font-semibold num">Líquido pago</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for f in fechamentos %}
-      <tr class="border-b border-borda/60">
-        <td class="px-4 py-2 font-medium">{{ f.nome }}</td>
-        <td class="px-4 py-2">{{ f.setor }}</td>
-        <td class="px-4 py-2">{{ f.funcao }}</td>
-        <td class="px-4 py-2 text-gray-500">{{ f.registro }}</td>
-        <td class="px-4 py-2 num">{{ f.pontos }}</td>
-        <td class="px-4 py-2 num">{{ f.dias_trabalhados }}</td>
-        <td class="px-4 py-2 num">{{ f.desconto | brl }}</td>
-        <td class="px-4 py-2 num font-semibold">{{ f.liquido_a_pagar | brl }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-    <tfoot>
-      <tr class="bg-creme font-semibold">
-        <td class="px-4 py-2" colspan="7">Total distribuído</td>
-        <td class="px-4 py-2 num">{{ total | brl }}</td>
-      </tr>
-    </tfoot>
-  </table>
-</div>
-<p class="text-xs text-gray-400 mt-3">
-  Fechada em {{ fechamentos[0].data_fechamento | data('%d/%m/%Y %H:%M') if fechamentos else '—' }}.
-  Quinzenas fechadas não recalculam — alterações exigiriam trilha de auditoria da consultoria.
-</p>
+{% call ui.page_header('Quinzena fechada', periodo.referencia ~ ' · valores finais da quinzena encerrada.') %}
+  <a class="btn" href="{{ url_for('gorjetas.listar') }}">{{ ui.icon('chevron-left') }}Quinzenas</a>
+  {% if current_user.pode('gorjetas.excluir') %}
+    <form method="post" action="{{ url_for('gorjetas.reabrir', periodo_id=periodo.id) }}"
+          data-confirm="Reabrir {{ periodo.referencia }}? Os valores voltam a ser calculados e o fechamento atual é apagado.">
+      {{ ui.csrf() }}<button type="submit" class="btn">{{ ui.icon('unlock') }}Reabrir para corrigir</button>
+    </form>
+    <form method="post" action="{{ url_for('gorjetas.excluir', periodo_id=periodo.id) }}"
+          data-confirm="Excluir {{ periodo.referencia }}? O fechamento e todo o histórico desta quinzena são apagados.">
+      {{ ui.csrf() }}<button type="submit" class="btn ghost" style="color:var(--danger)">{{ ui.icon('trash-2') }}Excluir quinzena</button>
+    </form>
+  {% endif %}
+{% endcall %}
+
+{% call ui.notice('success') %}
+  <p>Fechada em {{ fechamentos[0].data_fechamento | data('%d/%m/%Y às %H:%M') if fechamentos else '—' }}.
+    Os valores abaixo são definitivos: para mudar qualquer coisa é preciso reabrir a quinzena.</p>
+{% endcall %}
+
+<section class="metrics" aria-label="Resumo da quinzena">
+  {{ ui.metric('Total distribuído', total | brl, 'Comissão bruta ' ~ (periodo.comissao_bruta | brl) ~ ' · encargos ' ~ (periodo.percentual_encargos | pct)) }}
+  {{ ui.metric('Colaboradores', fechamentos | length, 'Participações encerradas') }}
+  {{ ui.metric('Período', (periodo.data_inicio | data('%d')) ~ '–' ~ (periodo.data_fim | data('%d/%m')), (periodo.mes | nome_mes) ~ ' ' ~ periodo.ano) }}
+</section>
+
+<section class="surface" aria-labelledby="t-fech">
+  <div class="section-top">
+    <h2 id="t-fech">Valores pagos</h2>
+    {% include "gorjetas/_relatorios.html" %}
+  </div>
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Colaborador</th><th>Setor</th><th class="num">Dias</th><th class="num">Descontos</th><th class="num">Líquido pago</th><th class="actions">Detalhe</th></tr></thead>
+      <tbody>
+        {% for f in fechamentos %}
+        {% set desc = f.desconto + f.desconto_setor + f.desconto_extra %}
+        <tr>
+          <td data-label="Colaborador" class="wrap">{{ f.nome }}<small>{{ f.funcao }} · {{ f.registro }}</small></td>
+          <td data-label="Setor">{{ f.setor }}</td>
+          <td data-label="Dias" class="num">{{ f.dias_trabalhados }}</td>
+          <td data-label="Descontos" class="num">{{ (-desc) | brl if desc else '—' }}</td>
+          <td data-label="Líquido pago" class="num strong">{{ f.liquido_a_pagar | brl }}</td>
+          <td data-label="Detalhe" class="actions"><button type="button" class="btn ghost small" data-open="calc-{{ f.id }}">Ver cálculo</button></td>
+        </tr>
+        {% endfor %}
+        <tr class="total"><td>Total distribuído</td><td></td><td></td><td></td><td class="num">{{ total | brl }}</td><td></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% for f in fechamentos %}
+{% call ui.dialog('calc-' ~ f.id, f.nome, 'drawer') %}
+  <div class="dialog-body">
+    <p class="caption">{{ periodo.referencia }} · {{ f.setor }} · {{ f.funcao }} · {{ f.registro }}</p>
+    <div class="metric-value">{{ f.liquido_a_pagar | brl }}</div>
+    <ul class="details-list">
+      <li><span>Pontos × dias trabalhados</span><span class="num">{{ f.pontos | string | replace('.', ',') }} × {{ f.dias_trabalhados }}</span></li>
+      <li><span>(−) Desconto do setor</span><span class="num">{{ (-f.desconto_setor) | brl if f.desconto_setor else '—' }}</span></li>
+      <li><span>(−) Desconto individual</span><span class="num">{{ (-f.desconto) | brl if f.desconto else '—' }}</span></li>
+      <li><span>(−) Reposição de extras</span><span class="num">{{ (-f.desconto_extra) | brl if f.desconto_extra else '—' }}</span></li>
+      <li><span>(±) Acerto de férias</span><span class="num">{{ f.reembolso_ferias | brl if f.reembolso_ferias else '—' }}</span></li>
+      <li class="strong"><span>Líquido pago</span><span class="num">{{ f.liquido_a_pagar | brl }}</span></li>
+    </ul>
+    <p class="help mt-16">Snapshot gravado no fechamento: não recalcula se cadastros ou regras mudarem depois.</p>
+  </div>
+  <div class="dialog-actions"><button type="button" class="btn primary" data-close>Fechar</button></div>
+{% endcall %}
+{% endfor %}
 {% endblock %}

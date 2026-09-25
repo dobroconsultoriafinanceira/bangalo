@@ -1,0 +1,105 @@
+{# Componentes Clareza (contratos em output/clareza-handoff-v1/components.json).
+   Uso: {% import "_ui.html" as ui %} #}
+
+{% macro icon(nome, rotulo=None) -%}
+  <i data-lucide="{{ nome }}" class="icon" {% if rotulo %}aria-label="{{ rotulo }}" role="img"{% else %}aria-hidden="true"{% endif %}></i>
+{%- endmacro %}
+
+{# Cabeçalho de página: h1 único, subtítulo e ações (caller = ações) #}
+{% macro page_header(titulo, subtitulo=None) -%}
+  <div class="page-header">
+    <div>
+      <h1>{{ titulo }}</h1>
+      {% if subtitulo %}<p>{{ subtitulo }}</p>{% endif %}
+    </div>
+    {% if caller %}<div class="header-actions">{{ caller() }}</div>{% endif %}
+  </div>
+{%- endmacro %}
+
+{# Badge: texto obrigatório; tom neutral|orange|green|red|amber #}
+{% macro badge(texto, tom="") -%}
+  <span class="badge {{ tom }}">{{ texto }}</span>
+{%- endmacro %}
+
+{# Aviso persistente; tom: "" (info) | warn | error | success #}
+{% macro notice(tom="") -%}
+  <div class="notice {{ tom }}" role="{{ 'alert' if tom == 'error' else 'status' }}">
+    {{ icon({'warn': 'triangle-alert', 'error': 'circle-alert', 'success': 'circle-check'}.get(tom, 'info')) }}
+    <div>{{ caller() }}</div>
+  </div>
+{%- endmacro %}
+
+{# Métrica prioritária (até 3 na visão inicial). valor None → — #}
+{% macro metric(rotulo, valor, nota=None, classe="", fonte=None, fonte_alerta=False) -%}
+  <div class="metric">
+    <div class="metric-label">{{ rotulo }}</div>
+    <div class="metric-value {{ classe }}">{{ valor if valor is not none else '—' }}</div>
+    {% if nota %}<div class="metric-note">{{ nota }}</div>{% endif %}
+    {# de onde vem o número: evita comparar caixa com extrato sem saber a origem #}
+    {% if fonte %}<div class="metric-source {{ 'alerta' if fonte_alerta }}">{{ fonte }}</div>{% endif %}
+  </div>
+{%- endmacro %}
+
+{# Estado vazio com explicação da origem dos dados (caller = ação opcional) #}
+{% macro empty(titulo, texto, icone="inbox") -%}
+  <div class="empty">
+    <div class="empty-icon">{{ icon(icone) }}</div>
+    <h2>{{ titulo }}</h2>
+    <p>{{ texto }}</p>
+    {% if caller %}{{ caller() }}{% endif %}
+  </div>
+{%- endmacro %}
+
+{# Diálogo nativo. variante: "" (modal 520px) | drawer (440px) | popover | fullscreen
+   Abrir com data-open="id"; fechar com data-close. caller = corpo + ações. #}
+{% macro dialog(id, titulo, variante="") -%}
+  <dialog id="{{ id }}" class="dialog {{ variante }}" aria-labelledby="{{ id }}-titulo">
+    <div class="dialog-head">
+      <h2 id="{{ id }}-titulo">{{ titulo }}</h2>
+      <button type="button" class="icon-btn" data-close aria-label="Fechar">{{ icon('x') }}</button>
+    </div>
+    {{ caller() }}
+  </dialog>
+{%- endmacro %}
+
+{# Campo com label persistente. tipo: text|number|date|email|password|select|textarea #}
+{% macro field(nome, rotulo, valor="", tipo="text", obrigatorio=False, opcoes=None, ajuda=None, attrs="", id=None) -%}
+  {% set fid = id or ('f-' ~ nome) %}
+  <div class="field">
+    <label for="{{ fid }}">{{ rotulo }}{% if obrigatorio %} <span class="required" aria-hidden="true">*</span>{% endif %}</label>
+    {% if tipo == 'select' %}
+      <select id="{{ fid }}" name="{{ nome }}" {% if obrigatorio %}required{% endif %} {{ attrs | safe }}>
+        {% for op in opcoes or [] %}
+          {% if op is string %}{% set v, t = op, op %}{% else %}{% set v, t = op[0], op[1] %}{% endif %}
+          <option value="{{ v }}" {% if v|string == valor|string %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    {% elif tipo == 'textarea' %}
+      <textarea id="{{ fid }}" name="{{ nome }}" {{ attrs | safe }}>{{ valor if valor is not none else '' }}</textarea>
+    {% else %}
+      <input id="{{ fid }}" type="{{ tipo }}" name="{{ nome }}" value="{{ valor if valor is not none else '' }}"
+             {% if obrigatorio %}required{% endif %} {% if ajuda %}aria-describedby="{{ fid }}-ajuda"{% endif %} {{ attrs | safe }}>
+    {% endif %}
+    {% if ajuda %}<p class="help" id="{{ fid }}-ajuda">{{ ajuda }}</p>{% endif %}
+  </div>
+{%- endmacro %}
+
+{% macro csrf() -%}
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+{%- endmacro %}
+
+{# Abas de subnavegação: itens = [(url, rótulo, ativo)] #}
+{% macro tabs(itens, rotulo="Seções") -%}
+  <nav class="tabs" aria-label="{{ rotulo }}">
+    {% for url, texto, ativo in itens %}
+      <a href="{{ url }}" class="{{ 'active' if ativo }}" {% if ativo %}aria-current="page"{% endif %}>{{ texto }}</a>
+    {% endfor %}
+  </nav>
+{%- endmacro %}
+
+{# Valor monetário com cor semântica opcional #}
+{% macro money(valor, colorir=False) -%}
+  {%- if valor is none -%}—{%- else -%}
+  <span class="{{ ('good' if valor > 0 else 'bad' if valor < 0 else '') if colorir }}">{{ valor | brl }}</span>
+  {%- endif -%}
+{%- endmacro %}

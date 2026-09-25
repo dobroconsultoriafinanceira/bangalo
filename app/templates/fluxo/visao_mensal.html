@@ -1,141 +1,257 @@
 {% extends "base.html" %}
-{% block titulo %}Fluxo de Caixa{% endblock %}
+{% block titulo %}{{ 'Grade mensal' if aba == 'grade' else 'Fluxo de caixa' }}{% endblock %}
 {% block conteudo %}
-<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-  <div>
-    <h1 class="text-2xl font-semibold">Fluxo de Caixa</h1>
-    <p class="text-sm text-gray-500">Visão mensal · saldos calculados automaticamente</p>
-  </div>
-  <div class="flex items-center gap-2">
-    <form method="get" class="flex items-center gap-2">
-      <select name="mes" class="rounded-lg border border-borda px-2 py-1.5 text-sm bg-white">
-        {% for m in range(1, 13) %}
-          <option value="{{ m }}" {{ 'selected' if m == mes }}>{{ m | nome_mes }}</option>
-        {% endfor %}
-      </select>
-      <input type="number" name="ano" value="{{ ano }}" class="w-24 rounded-lg border border-borda px-2 py-1.5 text-sm" aria-label="Ano">
-      <button class="px-3 py-1.5 rounded-lg bg-bangalo-500 text-white text-sm">Ver</button>
-    </form>
-    <a href="{{ url_for('fluxo_caixa.lancamentos') }}" class="px-3 py-1.5 rounded-lg border border-bangalo-500 text-bangalo-600 text-sm hover:bg-bangalo-50">Lançamentos</a>
-  </div>
-</div>
+{% set ultimo = visao.dias[-1] %}
+{% set inicio_mes = '%04d-%02d-01' | format(ano, mes) %}
+{% set fim_mes = '%04d-%02d-%02d' | format(ano, mes, ultimo) %}
 
-<!-- Lançamento rápido -->
-<details class="bg-white rounded-2xl border border-borda mb-6">
-  <summary class="px-5 py-3 cursor-pointer text-sm font-medium text-bangalo-700">+ Lançamento rápido</summary>
-  <form method="post" action="{{ url_for('fluxo_caixa.criar_lancamento') }}"
-        class="px-5 pb-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3 text-sm items-end">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div>
-      <label class="block text-xs text-gray-500 mb-1" for="lr-data">Data</label>
-      <input id="lr-data" type="date" name="data" required class="w-full rounded-lg border border-borda px-2 py-1.5">
-    </div>
-    <div class="lg:col-span-2">
-      <label class="block text-xs text-gray-500 mb-1" for="lr-cat">Categoria</label>
-      <select id="lr-cat" name="categoria_id" required class="w-full rounded-lg border border-borda px-2 py-1.5 bg-white">
-        <option value="">Selecione…</option>
-        {% for c in categorias %}
-          <option value="{{ c.id }}">{{ 'E' if c.tipo == 'entrada' else 'S' }} · {{ c.grupo }} · {{ c.nome }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div>
-      <label class="block text-xs text-gray-500 mb-1" for="lr-forn">Fornecedor</label>
-      <select id="lr-forn" name="fornecedor_id" class="w-full rounded-lg border border-borda px-2 py-1.5 bg-white">
-        <option value="">—</option>
-        {% for f in fornecedores %}<option value="{{ f.id }}">{{ f.nome }}</option>{% endfor %}
-      </select>
-    </div>
-    <div>
-      <label class="block text-xs text-gray-500 mb-1" for="lr-fp">Forma pgto.</label>
-      <select id="lr-fp" name="forma_pagamento" class="w-full rounded-lg border border-borda px-2 py-1.5 bg-white">
-        <option value="">—</option>
-        {% for fp in formas_pagamento %}<option>{{ fp }}</option>{% endfor %}
-      </select>
-    </div>
-    <div>
-      <label class="block text-xs text-gray-500 mb-1" for="lr-valor">Valor (R$)</label>
-      <input id="lr-valor" name="valor" required placeholder="0,00" inputmode="decimal" class="w-full rounded-lg border border-borda px-2 py-1.5">
-    </div>
-    <div>
-      <label class="block text-xs text-gray-500 mb-1" for="lr-desc">Descrição</label>
-      <div class="flex gap-2">
-        <input id="lr-desc" name="descricao" class="flex-1 rounded-lg border border-borda px-2 py-1.5 min-w-0">
-        <button class="px-4 py-1.5 rounded-lg bg-bangalo-500 text-white shrink-0">Lançar</button>
-      </div>
-    </div>
-  </form>
-</details>
+{% call ui.page_header('Grade mensal' if aba == 'grade' else 'Fluxo de caixa',
+      'Inspecionar categorias e dias do mês sem perder os totais.' if aba == 'grade' else 'Saldo, entradas, saídas e projeção do mês. Saldos calculados a partir dos lançamentos.') %}
+  {% if current_user.pode('caixa.editar') %}<button type="button" class="btn primary" data-open="dlg-lancamento" data-reset data-titulo="Novo lançamento"
+          data-action="{{ url_for('fluxo_caixa.criar_lancamento') }}">{{ ui.icon('plus') }}Novo lançamento</button>{% endif %}
+{% endcall %}
 
-{% set ns = namespace(entradas=0, saidas=0) %}
-{% for nome_grupo, g in visao.grupos.items() %}
-  {% if g.tipo == 'entrada' %}{% set ns.entradas = ns.entradas + g.total %}
-  {% else %}{% set ns.saidas = ns.saidas + g.total %}{% endif %}
-{% endfor %}
-<div class="bg-white rounded-2xl border border-borda p-5 mb-6 grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-  <div>
-    <p class="text-xs text-gray-400 uppercase">Saldo inicial do mês</p>
-    <p class="font-semibold mt-1">{{ visao.saldo_inicial | brl }}</p>
-  </div>
-  <div>
-    <p class="text-xs text-gray-400 uppercase">Entradas no mês</p>
-    <p class="font-semibold mt-1 text-ok">{{ ns.entradas | brl }}</p>
-  </div>
-  <div>
-    <p class="text-xs text-gray-400 uppercase">Saídas no mês</p>
-    <p class="font-semibold mt-1 text-erro">{{ ns.saidas | brl }}</p>
-  </div>
-  <div>
-    <p class="text-xs text-gray-400 uppercase">Saldo final do mês</p>
-    {% set saldo_final = visao.saldos_por_dia[visao.dias[-1]] %}
-    <p class="font-semibold mt-1 {{ 'text-erro' if saldo_final < 0 }}">{{ saldo_final | brl }}</p>
-  </div>
-</div>
+{{ ui.tabs([
+  (url_for('fluxo_caixa.visao_mensal_view', ano=ano, mes=mes), 'Resumo', aba == 'resumo'),
+  (url_for('fluxo_caixa.visao_mensal_view', ano=ano, mes=mes, aba='grade'), 'Grade mensal', aba == 'grade'),
+  (url_for('fluxo_caixa.lancamentos', inicio=inicio_mes, fim=fim_mes), 'Lançamentos', False),
+  (url_for('fluxo_caixa.previstas'), 'Previstas', False),
+], 'Seções do caixa') }}
 
-<!-- Grade dia × grupo (grupos colapsáveis) -->
-<div class="bg-white rounded-2xl border border-borda overflow-x-auto">
-  <table class="text-xs min-w-full">
-    <thead>
-      <tr class="bg-creme border-b border-borda">
-        <th class="sticky left-0 bg-creme text-left px-3 py-2 font-semibold min-w-[190px] z-10">Grupo / Categoria</th>
-        {% for d in visao.dias %}
-          <th class="px-2 py-2 font-medium text-gray-500 num">{{ '%02d' % d }}</th>
+<form method="get" class="toolbar" aria-label="Mês de referência">
+  {% if aba == 'grade' %}<input type="hidden" name="aba" value="grade">{% endif %}
+  <label class="sr-only" for="sel-mes">Mês</label>
+  <select id="sel-mes" name="mes" style="max-width:180px">
+    {% for m in range(1, 13) %}<option value="{{ m }}" {{ 'selected' if m == mes }}>{{ m | nome_mes }}</option>{% endfor %}
+  </select>
+  <label class="sr-only" for="sel-ano">Ano</label>
+  <input id="sel-ano" type="number" name="ano" value="{{ ano }}" min="2000" max="2100" style="max-width:110px">
+  <button class="btn" type="submit">Ver mês</button>
+  <span class="push caption">{{ mes | nome_mes }} {{ ano }}</span>
+</form>
+
+{% if aba == 'resumo' %}
+{# ═════════════════════════════ RESUMO ═════════════════════════════ #}
+<section class="metrics quatro" aria-label="Saldos e movimento do mês">
+  {# mês em curso abre com o saldo de hoje; nos outros, com o saldo que entrou no mês #}
+  {% if resumo.mes_atual %}
+    {{ ui.metric('Saldo atual', resumo.saldo_atual | brl, 'Até ' ~ ('%02d/%02d' | format(resumo.corte, mes)),
+                 'bad' if resumo.saldo_atual < 0 else '',
+                 fonte='Fonte: Stone (cartões), Itaú (extrato) e dinheiro lançado à mão') }}
+  {% else %}
+    {{ ui.metric('Saldo inicial', visao.saldo_inicial | brl, 'Antes de 01/' ~ ('%02d' | format(mes)),
+                 'bad' if visao.saldo_inicial < 0 else '',
+                 fonte='Fonte: Stone (cartões), Itaú (extrato) e dinheiro lançado à mão') }}
+  {% endif %}
+  {{ ui.metric('Entradas do mês', resumo.entradas | brl,
+               ((resumo.entradas_realizadas | brl_abrev) ~ ' realizadas · ' ~ (resumo.entradas_previstas | brl_abrev) ~ ' previstas')
+               if resumo.mes_atual else ('Previsto para o mês' if resumo.futuro else 'Mês fechado')) }}
+  {{ ui.metric('Saídas do mês', resumo.saidas | brl,
+               ((resumo.saidas_realizadas | brl_abrev) ~ ' realizadas · ' ~ (resumo.saidas_previstas | brl_abrev) ~ ' previstas')
+               if resumo.mes_atual else ('Previsto para o mês' if resumo.futuro else 'Mês fechado'),
+               'bad' if resumo.saidas > resumo.entradas else '') }}
+  {{ ui.metric('Saldo previsto' if (resumo.mes_atual or resumo.futuro) else 'Saldo final',
+               resumo.saldo_final | brl,
+               ('Em %02d/%02d · lançamentos programados' | format(ultimo, mes)) if (resumo.mes_atual or resumo.futuro) else 'Fechamento do mês',
+               'bad' if resumo.saldo_final < 0 else '') }}
+</section>
+
+<section class="surface" aria-labelledby="t-entradas-saidas">
+  <div class="section-top">
+    <h2 id="t-entradas-saidas">Entradas e saídas de {{ mes | nome_mes | lower }}</h2>
+    <a href="{{ url_for('fluxo_caixa.lancamentos', inicio=inicio_mes, fim=fim_mes) }}">Ver lançamentos</a>
+  </div>
+  {# mês em curso: realizado e previsto lado a lado. Mês fechado ou futuro: uma coluna só. #}
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead>
+        <tr>
+          <th>Movimento</th>
+          {% if resumo.mes_atual %}
+            <th class="num">Realizado até {{ '%02d/%02d' | format(resumo.corte, mes) }}</th>
+            <th class="num">Previsto no resto do mês</th>
+            <th class="num">Total do mês</th>
+          {% else %}
+            <th class="num">{{ 'Previsto para o mês' if resumo.futuro else 'Total do mês' }}</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td data-label="Movimento">Entradas</td>
+          {% if resumo.mes_atual %}
+            <td data-label="Realizado" class="num">{{ resumo.entradas_realizadas | brl }}</td>
+            <td data-label="Previsto" class="num">{{ resumo.entradas_previstas | brl }}</td>
+          {% endif %}
+          <td data-label="Total do mês" class="num strong good">{{ resumo.entradas | brl }}</td>
+        </tr>
+        <tr>
+          <td data-label="Movimento">Saídas</td>
+          {% if resumo.mes_atual %}
+            <td data-label="Realizado" class="num">{{ resumo.saidas_realizadas | brl }}</td>
+            <td data-label="Previsto" class="num">{{ resumo.saidas_previstas | brl }}</td>
+          {% endif %}
+          <td data-label="Total do mês" class="num strong bad">{{ resumo.saidas | brl }}</td>
+        </tr>
+        <tr class="total">
+          <td data-label="Movimento">Resultado</td>
+          {% if resumo.mes_atual %}
+            <td data-label="Realizado" class="num {{ 'bad' if resumo.resultado_realizado < 0 }}">{{ resumo.resultado_realizado | brl }}</td>
+            {% set previsto = resumo.entradas_previstas - resumo.saidas_previstas %}
+            <td data-label="Previsto" class="num {{ 'bad' if previsto < 0 }}">{{ previsto | brl }}</td>
+          {% endif %}
+          <td data-label="Total do mês" class="num {{ 'bad' if resumo.resultado < 0 }}">{{ resumo.resultado | brl }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="table-meta">
+    <span>{% if resumo.futuro %}Mês futuro: tudo previsto — recebíveis de cartão e despesas já programadas na planilha.{% elif resumo.mes_atual %}Realizado = até hoje. Previsto = recebíveis de cartão e despesas já programadas na planilha.{% else %}Mês fechado: tudo realizado.{% endif %}</span>
+  </div>
+</section>
+
+<section class="surface" aria-labelledby="t-evolucao">
+  <div class="section-top"><h2 id="t-evolucao">Evolução do saldo</h2></div>
+  <div class="legend" aria-hidden="true"><span>Realizado</span><span>Previsto</span></div>
+  <div class="chart-box"><canvas id="grafico-saldo" role="img" aria-label="Saldo diário de {{ mes | nome_mes | lower }}: realizado e previsto"></canvas></div>
+  <p class="chart-note">Passe o mouse, toque ou consulte a grade mensal para ver os valores de cada dia.</p>
+</section>
+
+<section class="surface" aria-labelledby="t-semanas">
+  <div class="section-top"><h2 id="t-semanas">Resumo semanal</h2></div>
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Semana</th><th class="num">Entradas</th><th class="num">Saídas</th><th class="num">Resultado</th></tr></thead>
+      <tbody>
+        {% for s in resumo.semanas %}
+        <tr>
+          <td data-label="Semana">{{ s.rotulo }}{% if s.previsto %} · <span class="muted">previsto</span>{% elif s.parcial and resumo.mes_atual %} · <span class="muted">em andamento</span>{% endif %}</td>
+          <td data-label="Entradas" class="num">{{ s.entradas | brl }}</td>
+          <td data-label="Saídas" class="num">{{ s.saidas | brl }}</td>
+          <td data-label="Resultado" class="num {{ 'bad' if s.resultado < 0 }}">{{ s.resultado | brl }}</td>
+        </tr>
         {% endfor %}
-        <th class="px-3 py-2 font-semibold num">Total</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for nome_grupo, g in visao.grupos.items() %}
-      {% set gid = loop.index %}
-      <tr class="border-b border-borda bg-gray-50 cursor-pointer hover:bg-gray-100"
-          onclick="document.querySelectorAll('.cat-g{{ gid }}').forEach(el => el.classList.toggle('hidden'))">
-        <td class="sticky left-0 bg-gray-50 px-3 py-2 font-semibold {{ 'text-ok' if g.tipo == 'entrada' else 'text-bangalo-800' }}">
-          ▸ {{ nome_grupo }}
-        </td>
-        {% for d in visao.dias %}
-          <td class="px-2 py-2 num">{% if g.total_por_dia.get(d) %}{{ g.total_por_dia[d] | brl(false) }}{% endif %}</td>
+        <tr class="total">
+          <td data-label="Semana">Mês</td>
+          <td data-label="Entradas" class="num">{{ resumo.entradas | brl }}</td>
+          <td data-label="Saídas" class="num">{{ resumo.saidas | brl }}</td>
+          <td data-label="Resultado" class="num {{ 'bad' if resumo.entradas < resumo.saidas }}">{{ (resumo.entradas - resumo.saidas) | brl }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="help mt-16">Saldo inicial do mês: {{ visao.saldo_inicial | brl }}.</p>
+</section>
+
+{% else %}
+{# ═════════════════════════════ GRADE ═════════════════════════════ #}
+{% call ui.notice() %}<p>Role os dias dentro da grade. Clique em um grupo para ver as categorias. Entradas em verde, saídas em vermelho; o cabeçalho do grupo, a linha “Saldo do dia” e a coluna “Total” ficam sempre à vista. Valores em reais.</p>{% endcall %}
+{% set dias_abrev = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"] %}
+<section class="surface flush" aria-labelledby="t-grade">
+  <h2 id="t-grade" class="sr-only">Grade diária de {{ mes | nome_mes | lower }} de {{ ano }}</h2>
+  <div class="table-scroll" tabindex="0" role="region" aria-labelledby="t-grade" style="max-height:calc(100vh - 260px)">
+    <table class="table grade caixa" id="tabela-fluxo">
+      <thead>
+        <tr>
+          <th scope="col">Conta</th>
+          {% for d in visao.dias %}
+            {% set wd = weekdays[d] %}
+            {% set hoje_col = (ano == hoje.year and mes == hoje.month and d == hoje.day) %}
+            <th scope="col" class="num {{ 'weekend' if wd >= 5 }}" {% if hoje_col %}style="color:var(--action)" aria-current="date"{% endif %}>
+              <span class="caption" style="display:block">{{ dias_abrev[wd] }}</span>{{ '%02d' | format(d) }}/{{ '%02d' | format(mes) }}
+            </th>
+          {% endfor %}
+          <th scope="col" class="num">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for nome_grupo, g in visao.grupos.items() %}
+        {% set gid = loop.index %}
+        <tr class="group {{ g.tipo }}">
+          <td>
+            <button type="button" class="btn ghost small" style="padding-left:0" aria-expanded="false" data-grupo="{{ gid }}">
+              {{ ui.icon('chevron-right') }}{{ nome_grupo }}
+            </button>
+          </td>
+          {% for d in visao.dias %}
+            <td class="num {{ 'weekend' if weekdays[d] >= 5 }}">{{ g.total_por_dia[d] | brl(false) if g.total_por_dia.get(d) else '' }}</td>
+          {% endfor %}
+          <td class="num {{ 'good' if g.tipo == 'entrada' }}">{{ g.total | brl(false) }}</td>
+        </tr>
+        {% for cat_id, cat in g.categorias.items() %}
+        <tr class="sub {{ g.tipo }}" data-grupo-linha="{{ gid }}" hidden>
+          <td>{{ cat.nome }}</td>
+          {% for d in visao.dias %}
+            <td class="num {{ 'weekend' if weekdays[d] >= 5 }}">{{ cat.por_dia[d] | brl(false) if cat.por_dia.get(d) else '' }}</td>
+          {% endfor %}
+          <td class="num">{{ cat.total | brl(false) }}</td>
+        </tr>
         {% endfor %}
-        <td class="px-3 py-2 num font-bold">{{ g.total | brl(false) }}</td>
-      </tr>
-      {% for cat_id, cat in g.categorias.items() %}
-      <tr class="border-b border-borda/60 hidden cat-g{{ gid }}">
-        <td class="sticky left-0 bg-white px-3 py-1.5 pl-7 text-gray-600">{{ cat.nome }}</td>
-        {% for d in visao.dias %}
-          <td class="px-2 py-1.5 num text-gray-600">{% if cat.por_dia.get(d) %}{{ cat.por_dia[d] | brl(false) }}{% endif %}</td>
         {% endfor %}
-        <td class="px-3 py-1.5 num font-medium">{{ cat.total | brl(false) }}</td>
-      </tr>
-      {% endfor %}
-      {% endfor %}
-      <tr class="bg-creme font-semibold border-t-2 border-borda">
-        <td class="sticky left-0 bg-creme px-3 py-2">Saldo final do dia</td>
-        {% for d in visao.dias %}
-          <td class="px-2 py-2 num {{ 'text-erro' if visao.saldos_por_dia[d] < 0 }}">{{ visao.saldos_por_dia[d] | brl(false) }}</td>
-        {% endfor %}
-        <td></td>
-      </tr>
-    </tbody>
-  </table>
-</div>
-<p class="text-xs text-gray-400 mt-2">Clique em um grupo para expandir as categorias. Edição de movimentos individuais em “Lançamentos”.</p>
+      </tbody>
+      <tfoot>
+        <tr class="total">
+          <td>Saldo do dia</td>
+          {% for d in visao.dias %}
+            {% set saldo = visao.saldos_por_dia[d] %}
+            <td class="num {{ 'bad' if saldo < 0 }}">{{ saldo | brl(false) }}</td>
+          {% endfor %}
+          {% set saldo_fim = visao.saldos_por_dia[visao.dias[-1]] %}
+          <td class="num {{ 'bad' if saldo_fim < 0 }}" title="Saldo no fim do mês">{{ saldo_fim | brl(false) }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</section>
+<p class="help mt-16">Saldo inicial do mês: {{ visao.saldo_inicial | brl }}. Em Compras as linhas são por fornecedor.</p>
+{% endif %}
+
+{% if current_user.pode('caixa.editar') %}{% include "fluxo/_lancamento_dialogos.html" %}{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if aba == 'resumo' %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/graficos.js') }}"></script>
+<script>
+BangaloCharts.defaults();
+(function () {
+  const serie = {{ resumo.serie | tojson }};
+  const C = BangaloCharts.COR;
+  new Chart(document.getElementById('grafico-saldo'), {
+    type: 'line',
+    data: {
+      labels: serie.map(p => p.dia),
+      datasets: [
+        { label: 'Realizado', data: serie.map(p => p.realizado), borderColor: C.realizado, backgroundColor: C.realizado,
+          borderWidth: 2.5, pointRadius: 2, tension: 0, spanGaps: false },
+        { label: 'Previsto', data: serie.map(p => p.previsto), borderColor: C.meta, backgroundColor: C.meta,
+          borderWidth: 2.5, borderDash: [5, 5], pointRadius: 0, tension: 0, spanGaps: false },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false }, tooltip: { backgroundColor: '#fff', titleColor: C.tinta, bodyColor: C.tinta,
+        borderColor: C.borda, borderWidth: 1, callbacks: { label: c => ' ' + c.dataset.label + ': ' + BangaloCharts.brl(c.raw) } } },
+      scales: {
+        x: { grid: { display: false }, border: { display: false }, ticks: { maxTicksLimit: 8 } },
+        y: { grid: { color: C.grade }, border: { display: false }, ticks: { maxTicksLimit: 4, callback: v => BangaloCharts.brlCompacto(v) } },
+      },
+      animation: false,
+    },
+  });
+})();
+</script>
+{% else %}
+<script>
+document.querySelectorAll('[data-grupo]').forEach(function (b) {
+  b.addEventListener('click', function () {
+    const aberto = b.getAttribute('aria-expanded') === 'true';
+    b.setAttribute('aria-expanded', aberto ? 'false' : 'true');
+    document.querySelectorAll('[data-grupo-linha="' + b.dataset.grupo + '"]').forEach(tr => { tr.hidden = aberto; });
+    b.querySelector('.icon, svg').style.transform = aberto ? '' : 'rotate(90deg)';
+  });
+});
+</script>
+{% endif %}
 {% endblock %}

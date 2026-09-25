@@ -11,8 +11,9 @@ from app.extensions import db
 from app.models.metas import FaturamentoDiario, FaturamentoHistorico, PremissaMeta
 from app.services import auditoria, metas_consultas
 from app.services.metas import metas_diarias
+from app.utils import periodo as periodo_global
 from app.utils.datas import hoje_sp
-from app.utils.decoradores import role_required
+from app.utils.permissoes import requer
 
 bp = Blueprint("metas", __name__)
 
@@ -32,8 +33,7 @@ def _parse_valor(texto: str) -> Decimal | None:
 @bp.route("/")
 @login_required
 def painel():
-    hoje = hoje_sp()
-    ano = request.args.get("ano", type=int, default=hoje.year)
+    ano = request.args.get("ano", type=int, default=periodo_global.atual()[0])
     tabela = metas_consultas.tabela_do_ano(ano)
     premissa = db.session.execute(
         db.select(PremissaMeta).filter_by(ano=ano)
@@ -51,7 +51,7 @@ def painel():
 
 
 @bp.route("/premissas/<int:ano>", methods=["POST"])
-@role_required("consultoria")
+@requer("metas.editar")
 def salvar_premissas(ano: int):
     """Premissas mudam a meta de todos os meses — restrito à consultoria."""
 
@@ -100,9 +100,9 @@ def salvar_premissas(ano: int):
 @bp.route("/registro-diario")
 @login_required
 def registro_diario():
-    hoje = hoje_sp()
-    ano = request.args.get("ano", type=int, default=hoje.year)
-    mes = request.args.get("mes", type=int, default=hoje.month)
+    ano_padrao, mes_padrao = periodo_global.atual()
+    ano = request.args.get("ano", type=int, default=ano_padrao)
+    mes = request.args.get("mes", type=int, default=mes_padrao)
     if not 1 <= mes <= 12:
         abort(400)
 
@@ -119,9 +119,10 @@ def registro_diario():
 
     linha = metas_consultas.tabela_do_ano(ano)[mes - 1]
     premissas = metas_consultas.premissas_do_ano(ano)
-    fechados_extra = {d for d, r in registros.items() if not r.aberto and d.weekday() != 0}
+    fechados_extra, abertos_extra = metas_consultas.excecoes_do_mes(registros)
     metas_dia = (
-        metas_diarias(ano, mes, linha.meta, premissas, fechados_extra) if linha.meta else {}
+        metas_diarias(ano, mes, linha.meta, premissas, fechados_extra, abertos_extra)
+        if linha.meta else {}
     )
 
     # acumulados dia a dia (como a aba de acompanhamento)
@@ -154,7 +155,7 @@ def registro_diario():
 
 
 @bp.route("/registro-diario/salvar", methods=["POST"])
-@login_required
+@requer("metas.editar")
 def salvar_registro_diario():
     ano = request.form.get("ano", type=int)
     mes = request.form.get("mes", type=int)
@@ -182,33 +183,36 @@ def salvar_registro_diario():
     return redirect(url_for("metas.registro_diario", ano=ano, mes=mes))
 
 
-@bp.route("/historico", methods=["GET", "POST"])
+@bp.route("/historico", methods=["POST"])
+@requer("metas.editar")
+def salvar_historico():
+    ano = request.form.get("ano", type=int)
+    mes = request.form.get("mes", type=int)
+    valor = _parse_valor(request.form.get("valor", ""))
+    if not ano or not 1 <= (mes or 0) <= 12 or valor is None:
+        flash("Informe ano, mês e valor válidos.", "error")
+    else:
+        reg = db.session.execute(
+            db.select(FaturamentoHistorico).filter_by(ano=ano, mes=mes)
+        ).scalar_one_or_none()
+        if reg:
+            auditoria.registrar("update", "faturamento_historico", reg.id,
+                                antes={"valor": reg.valor}, depois={"valor": valor})
+            reg.valor = valor
+        else:
+            reg = FaturamentoHistorico(ano=ano, mes=mes, valor=valor)
+            db.session.add(reg)
+            db.session.flush()
+            auditoria.registrar("create", "faturamento_historico", reg.id,
+                                depois={"ano": ano, "mes": mes, "valor": valor})
+        db.session.commit()
+        flash("Faturamento histórico salvo.", "success")
+    return redirect(url_for("metas.historico"))
+
+
+@bp.route("/historico")
 @login_required
 def historico():
-    if request.method == "POST":
-        ano = request.form.get("ano", type=int)
-        mes = request.form.get("mes", type=int)
-        valor = _parse_valor(request.form.get("valor", ""))
-        if not ano or not 1 <= (mes or 0) <= 12 or valor is None:
-            flash("Informe ano, mês e valor válidos.", "error")
-        else:
-            reg = db.session.execute(
-                db.select(FaturamentoHistorico).filter_by(ano=ano, mes=mes)
-            ).scalar_one_or_none()
-            if reg:
-                auditoria.registrar("update", "faturamento_historico", reg.id,
-                                    antes={"valor": reg.valor}, depois={"valor": valor})
-                reg.valor = valor
-            else:
-                reg = FaturamentoHistorico(ano=ano, mes=mes, valor=valor)
-                db.session.add(reg)
-                db.session.flush()
-                auditoria.registrar("create", "faturamento_historico", reg.id,
-                                    depois={"ano": ano, "mes": mes, "valor": valor})
-            db.session.commit()
-            flash("Faturamento histórico salvo.", "success")
-        return redirect(url_for("metas.historico"))
-
     historico_matriz = metas_consultas.carregar_historico()
     anos = sorted(historico_matriz)
     return render_template("metas/historico.html", historico=historico_matriz, anos=anos)

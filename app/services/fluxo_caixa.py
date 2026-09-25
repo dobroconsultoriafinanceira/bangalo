@@ -2,10 +2,10 @@
 """Consolidação do fluxo de caixa — subtotais e saldos sempre derivados.
 
 Espelha os blocos da planilha:
-  Total Entradas = Entradas + Outras Entradas
+  Total Entradas = vendas (Stone/PIX/delivery/dinheiro) + outras entradas
   Receita Líquida = Total Entradas − Impostos
-  Total Saídas = Impostos + Folha/Salários + Demais Salários + Compras (CPV)
-               + Despesas Fixas + Despesas Gerais
+  Total Saídas = Impostos + Folha/Salários + Demais Salários + Compras
+               + Despesas Fixas + Outras despesas
   Saldo Final(dia) = Saldo Inicial(dia) + Entradas − Saídas
   Saldo Inicial(dia) = Saldo Final(dia−1); o 1º dia vem de
   ConfigSistema('saldo_inicial_abertura').
@@ -23,18 +23,25 @@ CENTAVOS = Decimal("0.01")
 CHAVE_SALDO_ABERTURA = "saldo_inicial_abertura"
 CHAVE_DATA_ABERTURA = "data_abertura"
 
-# Grupos do plano de contas (seed) — usados nos agrupamentos das telas
-GRUPOS_ENTRADA = ("Entradas", "Outras Entradas")
-GRUPOS_SAIDA = (
-    "Impostos", "Folha/Salários", "Demais Salários", "Compras (CPV)",
-    "Despesas Fixas", "Despesas Gerais",
+# Categorias do plano de contas — a ordem aqui é a ordem das telas
+# (a subcategoria de Compras é o fornecedor cadastrado)
+# o que conta como receita da operação e o que é "outras entradas" no demonstrativo
+GRUPOS_RECEITA = ("Vendas - Repasse Stone", "Pix Itau", "IFOOD", "99 FOOD", "Dinheiro")
+GRUPOS_OUTRAS_ENTRADAS = ("Outros/Acertos", "Patrocínio", "Empréstimo", "Resgate", "RENDIMENTO")
+# ordem das telas — a pedida pela consultoria; as não citadas vêm depois
+GRUPOS_ENTRADA = (
+    "Vendas - Repasse Stone", "Pix Itau", "Outros/Acertos", "Patrocínio", "Empréstimo",
+    "Resgate", "IFOOD", "99 FOOD", "Dinheiro", "RENDIMENTO",
 )
+assert set(GRUPOS_ENTRADA) == set(GRUPOS_RECEITA) | set(GRUPOS_OUTRAS_ENTRADAS)
+GRUPOS_SAIDA = (
+    "Impostos", "Folha/Salários", "Demais Salários", "Compras",
+    "Despesas Fixas", "Outras despesas",
+)
+GRUPO_COMPRAS = "Compras"
+GRUPO_A_CLASSIFICAR = "A classificar"
 
-GRUPO_ORDEM = {
-    "Entradas": 0, "Outras Entradas": 1, "Impostos": 2,
-    "Folha/Salários": 3, "Demais Salários": 4, "Compras (CPV)": 5,
-    "Despesas Fixas": 6, "Despesas Gerais": 7,
-}
+GRUPO_ORDEM = {g: i for i, g in enumerate(GRUPOS_ENTRADA + GRUPOS_SAIDA)}
 
 
 def saldo_abertura() -> tuple[Decimal, date | None]:
@@ -116,37 +123,47 @@ def consolidacao_mensal(ano: int, mes_inicio: int = 1, mes_fim: int = 12) -> lis
     return resultado
 
 
-def dre_mensal(ano: int, mes: int) -> dict:
-    """Estrutura do DRE para o mês/ano informado, derivada dos grupos de categorias."""
+def dre_mensal(ano: int, mes: int, ate: date | None = None) -> dict:
+    """Estrutura do DRE para o mês/ano informado, derivada dos grupos de categorias.
+
+    `ate` limita ao realizado (ex.: até hoje): a planilha traz recebíveis e
+    despesas programadas para datas futuras (previstos).
+    """
     from app.utils.datas import primeiro_dia_mes, ultimo_dia_mes
 
     inicio = primeiro_dia_mes(ano, mes)
     fim = ultimo_dia_mes(ano, mes)
+    if ate is not None:
+        fim = min(fim, ate)
 
-    g = totais_por_grupo(inicio, fim)
+    g = totais_por_grupo(inicio, fim) if fim >= inicio else {}
     z = Decimal("0")
 
-    receita_bruta   = g.get("Entradas", z).quantize(CENTAVOS)
+    soma_grupos = lambda nomes: sum((g.get(n, z) for n in nomes), z)
+    receita_bruta   = soma_grupos(GRUPOS_RECEITA).quantize(CENTAVOS)
     impostos        = g.get("Impostos", z).quantize(CENTAVOS)
     receita_liquida = (receita_bruta - impostos).quantize(CENTAVOS)
 
-    cpv         = g.get("Compras (CPV)", z).quantize(CENTAVOS)
+    cpv         = g.get(GRUPO_COMPRAS, z).quantize(CENTAVOS)
     lucro_bruto = (receita_liquida - cpv).quantize(CENTAVOS)
 
     folha       = g.get("Folha/Salários", z).quantize(CENTAVOS)
     demais_sal  = g.get("Demais Salários", z).quantize(CENTAVOS)
     desp_fixas  = g.get("Despesas Fixas", z).quantize(CENTAVOS)
-    desp_gerais = g.get("Despesas Gerais", z).quantize(CENTAVOS)
+    desp_gerais = g.get("Outras despesas", z).quantize(CENTAVOS)
 
     total_pessoal   = (folha + demais_sal).quantize(CENTAVOS)
     total_desp_op   = (desp_fixas + desp_gerais).quantize(CENTAVOS)
     total_despesas  = (total_pessoal + total_desp_op).quantize(CENTAVOS)
 
     resultado_op     = (lucro_bruto - total_despesas).quantize(CENTAVOS)
-    outras_entradas  = g.get("Outras Entradas", z).quantize(CENTAVOS)
+    outras_entradas  = soma_grupos(GRUPOS_OUTRAS_ENTRADAS).quantize(CENTAVOS)
     resultado        = (resultado_op + outras_entradas).quantize(CENTAVOS)
 
     return {
+        "inicio":                 inicio,
+        "fim":                    fim,
+        "prime_cost":             (cpv + total_pessoal).quantize(CENTAVOS),  # CMV + pessoal
         "receita_bruta":          receita_bruta,
         "impostos":               impostos,
         "receita_liquida":        receita_liquida,
@@ -202,17 +219,23 @@ def visao_mensal(ano: int, mes: int) -> dict:
         .all()
     )
     grupos: dict[str, dict] = {}
+
+    def grupo_da_grade(nome: str, tipo: str) -> dict:
+        """Grupo fora da ordem da planilha (categoria nova) entra no fim, sem quebrar a grade."""
+        return grupos.setdefault(nome, {"tipo": tipo, "categorias": {}, "total_por_dia": {},
+                                        "total": Decimal("0")})
+
     for cat in todas_cats:
         if cat.grupo not in GRUPO_ORDEM:
             continue
-        g = grupos.setdefault(cat.grupo, {"tipo": cat.tipo, "categorias": {}, "total_por_dia": {}, "total": Decimal("0")})
-        if cat.grupo != "Compras (CPV)":
+        g = grupo_da_grade(cat.grupo, cat.tipo)
+        if cat.grupo != GRUPO_COMPRAS:
             g["categorias"].setdefault(str(cat.id), {"nome": cat.nome, "por_dia": {}, "total": Decimal("0")})
 
     total_dia: dict[int, Decimal] = {d: Decimal("0") for d in range(1, ultimo + 1)}
     for data_l, tipo, grupo, nome, cat_id, forn_id, forn_nome, total in linhas:
-        g = grupos[grupo]
-        if grupo == "Compras (CPV)" and forn_id:
+        g = grupo_da_grade(grupo, tipo)
+        if grupo == GRUPO_COMPRAS and forn_id:
             row_key = f"f{forn_id}"
             row_nome = forn_nome or nome
         else:
@@ -241,11 +264,17 @@ def visao_mensal(ano: int, mes: int) -> dict:
         acumulado += total_dia[d]
         saldos[d] = acumulado.quantize(CENTAVOS)
 
+    # a grade é lida no vocabulário da planilha; o plano de contas não muda
+    from app.services import grade_planilha
+
+    fornecedores = db.session.execute(
+        db.select(Fornecedor.nome).order_by(Fornecedor.id)).scalars().all()
+
     return {
         "ano": ano,
         "mes": mes,
         "dias": list(range(1, ultimo + 1)),
-        "grupos": grupos,
+        "grupos": grade_planilha.aplicar(grupos, fornecedores),
         "saldo_inicial": saldo_inicial_mes.quantize(CENTAVOS),
         "saldos_por_dia": saldos,
     }
@@ -263,3 +292,95 @@ def ranking_despesas(inicio: date, fim: date, limite: int = 10) -> list[tuple[st
         .all()
     )
     return [(grupo, Decimal(total).quantize(CENTAVOS)) for grupo, total in linhas]
+
+
+def resumo_do_mes(visao: dict, ano: int, mes: int, hoje: date) -> dict:
+    """Resumo do Caixa: saldo atual × previsto, série diária e semanas.
+
+    Usa só o que a visão mensal já calculou (mesmos saldos da grade). Dias
+    depois de hoje são previstos — lançamentos programados, não realizados.
+    """
+    dias = visao["dias"]
+    entradas = {d: Decimal("0") for d in dias}
+    saidas = {d: Decimal("0") for d in dias}
+    for g in visao["grupos"].values():
+        alvo = entradas if g["tipo"] == "entrada" else saidas
+        for d, v in g["total_por_dia"].items():
+            alvo[d] += v
+
+    mes_atual = (ano, mes) == (hoje.year, hoje.month)
+    futuro = (ano, mes) > (hoje.year, hoje.month)
+    corte = hoje.day if mes_atual else (0 if futuro else dias[-1])
+    saldos = visao["saldos_por_dia"]
+    saldo_atual = saldos[corte] if corte else visao["saldo_inicial"]
+    saldo_final = saldos[dias[-1]]
+
+    semanas = []
+    for inicio in range(1, dias[-1] + 1, 7):
+        fim = min(inicio + 6, dias[-1])
+        faixa = range(inicio, fim + 1)
+        e = sum((entradas[d] for d in faixa), Decimal("0"))
+        s_ = sum((saidas[d] for d in faixa), Decimal("0"))
+        semanas.append({
+            "rotulo": f"{inicio:02d} a {fim:02d}/{mes:02d}",
+            "entradas": e, "saidas": s_, "resultado": e - s_,
+            "previsto": inicio > corte,
+            "parcial": inicio <= corte < fim,
+        })
+
+    serie = [{
+        "dia": f"{d:02d}/{mes:02d}",
+        "realizado": float(saldos[d]) if d <= corte else None,
+        "previsto": float(saldos[d]) if d >= corte and corte < dias[-1] else None,
+    } for d in dias]
+
+    def ate_corte(valores: dict[int, Decimal], realizado: bool) -> Decimal:
+        return sum((v for d, v in valores.items() if (d <= corte) == realizado), Decimal("0"))
+
+    total_entradas = sum(entradas.values(), Decimal("0"))
+    total_saidas = sum(saidas.values(), Decimal("0"))
+    return {
+        "corte": corte, "mes_atual": mes_atual, "futuro": futuro,
+        "saldo_atual": saldo_atual, "saldo_final": saldo_final,
+        "variacao": saldo_final - saldo_atual,
+        "entradas": total_entradas,
+        "saidas": total_saidas,
+        "resultado": total_entradas - total_saidas,
+        # realizado = até hoje; previsto = lançamentos programados do resto do mês
+        "entradas_realizadas": ate_corte(entradas, True),
+        "entradas_previstas": ate_corte(entradas, False),
+        "saidas_realizadas": ate_corte(saidas, True),
+        "saidas_previstas": ate_corte(saidas, False),
+        "resultado_realizado": ate_corte(entradas, True) - ate_corte(saidas, True),
+        "semanas": semanas, "serie": serie,
+    }
+
+
+# ordem dos seletores: as categorias do plano, e as técnicas por último
+ORDEM_GRUPOS = GRUPOS_ENTRADA + GRUPOS_SAIDA + (GRUPO_A_CLASSIFICAR,)
+
+# categorias que o sistema usa por baixo e ninguém escolhe na revisão
+GRUPOS_AUTOMATICOS = (GRUPO_A_CLASSIFICAR,)
+
+
+# linhas que só o sistema alimenta — não entram nos seletores de revisão
+LINHAS_AUTOMATICAS = ("Recebíveis de cartão (previsto)",)
+
+
+def linhas_da_planilha(tipo: str | None = None) -> list[dict]:
+    """Linhas do caixa para os seletores da tela, na ordem dos blocos.
+
+    É o vocabulário da planilha — o mesmo que a Bárbara e a Manu usam — e não a
+    taxonomia bancária interna, que continua servindo só para DRE e relatórios.
+    """
+    consulta = db.select(Categoria).filter_by(ativo=True)
+    if tipo:
+        consulta = consulta.filter_by(tipo=tipo)
+    linhas = db.session.execute(
+        consulta.order_by(Categoria.grupo, Categoria.ordem, Categoria.nome)
+    ).scalars().all()
+    ordem = {g: i for i, g in enumerate(ORDEM_GRUPOS)}
+    linhas.sort(key=lambda c: (ordem.get(c.grupo, len(ORDEM_GRUPOS)), c.grupo, c.ordem, c.nome))
+    return [{"id": c.id, "nome": c.nome, "grupo": c.grupo, "tipo": c.tipo}
+            for c in linhas
+            if c.nome not in LINHAS_AUTOMATICAS and c.grupo not in GRUPOS_AUTOMATICOS]

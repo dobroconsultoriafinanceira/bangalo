@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block titulo %}Relatórios{% endblock %}
+{% block conteudo %}
+{% call ui.page_header('Relatórios e PDFs', 'Escolha o relatório, confira período, base e composição na prévia e gere o PDF.') %}
+  <a class="btn" href="{{ url_for('relatorios.exportacoes') }}">{{ ui.icon('history') }}Exportações anteriores</a>
+{% endcall %}
+
+<div class="report-layout">
+  <nav class="report-types" aria-label="Tipos de relatório">
+    {% for chave, t in tipos.items() %}
+      <a class="btn {{ 'active' if chave == tipo }}" href="{{ url_for('relatorios.index', tipo=chave) }}" {% if chave == tipo %}aria-current="page"{% endif %}>
+        {{ ui.icon('file-text') }}{{ t.titulo }}</a>
+    {% endfor %}
+  </nav>
+
+  <div>
+    <div class="row mb-24">
+      {% if tipo == 'gorjetas' %}
+        {{ ui.badge(quinzena.referencia if quinzena else 'Sem quinzena') }}
+        {% if quinzena %}{{ ui.badge('Fechada', 'green') if quinzena.fechado else ui.badge('Aberta', 'amber') }}{% endif %}
+      {% else %}
+        {{ ui.badge(previa.periodo if previa else '—') }}
+        {% if previa %}{{ ui.badge(previa.status, 'amber' if previa.status == 'Preliminar' else 'green') }}{% endif %}
+      {% endif %}
+      <button type="button" class="btn" data-open="dlg-opcoes">{{ ui.icon('sliders-horizontal') }}Opções</button>
+      <span class="caption push">{{ tipos[tipo].descricao }}</span>
+    </div>
+
+    {% if erro %}
+      {% call ui.notice('error') %}<p>{{ erro }}</p>{% endcall %}
+    {% elif tipo == 'gorjetas' %}
+      {% if quinzena %}
+      <div class="document-preview">
+        <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Bangalô" style="height:30px;margin-bottom:20px">
+        <h2 class="mb-0">{{ variantes[p.variante] }}</h2>
+        <p class="muted">{{ quinzena.referencia }} · {{ quinzena.data_inicio | data }} a {{ quinzena.data_fim | data }}</p>
+        <ul class="details-list">
+          {% if p.variante == 'completo' %}
+            <li><span>Parâmetros, rateio por setor e tabela de funções</span><span class="caption">página 1</span></li>
+            <li><span>Colaboradores (inclui quem é pago por fora)</span><span class="caption">página 1</span></li>
+            <li><span>Presença por dia e comissão do dia</span><span class="caption">página 2</span></li>
+            <li><span>Resumo, descontos e extras</span><span class="caption">página 3</span></li>
+          {% elif p.variante == 'resumido' %}
+            <li><span>Parâmetros, rateio por setor e tabela de funções</span><span class="caption">página 1</span></li>
+            <li><span>Colaboradores sem quem é pago por fora</span><span class="caption">página 1</span></li>
+            <li><span>Descontos por pessoa</span><span class="caption">quando houver</span></li>
+          {% else %}
+            <li><span>Acerto de férias por setor: quem paga, quem recebe e o alvo por pessoa</span><span class="caption">só com alguém de férias</span></li>
+          {% endif %}
+        </ul>
+        <p class="help mt-16">{{ 'Valores do fechamento (o que foi pago).' if quinzena.fechado else 'Quinzena aberta: valores do último salvamento.' }}</p>
+      </div>
+      {% else %}
+        {{ ui.empty('Nenhuma quinzena', 'Crie uma quinzena em Gorjetas para gerar os PDFs.', 'coffee') }}
+      {% endif %}
+    {% elif previa %}
+      <div class="document-preview" aria-label="Prévia do documento">
+        <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Bangalô" style="height:30px;margin-bottom:20px">
+        <h2 class="mb-0">{{ previa.titulo }}</h2>
+        <p class="muted">{{ previa.periodo }} · {{ previa.base }}</p>
+        {% for t in previa.tabelas %}
+          <h3 class="mt-24">{{ t.titulo }}</h3>
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr>{% for c in t.colunas %}<th class="{{ 'num' if loop.index0 in t.numericas }}">{{ c }}</th>{% endfor %}</tr></thead>
+              <tbody>
+                {% for l in t.linhas %}
+                  <tr class="{{ l.estilo }}">{% for c in l.celulas %}<td class="{{ 'num' if loop.index0 in t.numericas else 'wrap' }}">{{ c }}</td>{% endfor %}</tr>
+                  {% for nome, valor in l.itens %}
+                    <tr class="sub"><td class="wrap caption">{{ nome }}</td><td class="num caption">{{ valor | brl }}</td>{% for _ in t.colunas[2:] %}<td></td>{% endfor %}</tr>
+                  {% endfor %}
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% endfor %}
+        {% for nota in previa.notas %}<p class="help mt-16">{{ nota }}</p>{% endfor %}
+      </div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('relatorios.gerar') }}" class="row mt-24" data-busy="Gerando PDF…">
+      {{ ui.csrf() }}
+      <input type="hidden" name="tipo" value="{{ tipo }}">
+      {% for k, v in p.items() %}<input type="hidden" name="{{ k }}" value="{{ ('1' if v else '0') if v is sameas true or v is sameas false else (v if v is not none else '') }}">{% endfor %}
+      <button type="submit" class="btn primary" {{ 'disabled' if (tipo == 'gorjetas' and not quinzena) or erro }}>{{ ui.icon('download') }}Gerar PDF</button>
+      <span class="caption">O arquivo fica guardado em Exportações para baixar de novo.</span>
+    </form>
+
+    {% if recentes %}
+    <section class="surface mt-24" aria-labelledby="t-recentes">
+      <div class="section-top"><h2 id="t-recentes">Últimas exportações</h2><a href="{{ url_for('relatorios.exportacoes') }}">Ver todas</a></div>
+      <ul class="details-list">
+        {% for e in recentes %}
+        <li class="{{ 'strong' if e.id == destaque }}">
+          <span>{{ e.titulo }}<small class="caption" style="display:block">{{ e.gerado_em | data('%d/%m/%Y %H:%M') }}{% if e.gerado_por %} · {{ e.gerado_por.nome }}{% endif %}</small></span>
+          {% if e.status == 'gerado' %}
+            <a class="btn small" href="{{ url_for('relatorios.arquivo', exp_id=e.id) }}" target="_blank" rel="noopener">Abrir PDF</a>
+          {% else %}{{ ui.badge('Falhou', 'red') }}{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+  </div>
+</div>
+
+{% call ui.dialog('dlg-opcoes', 'Configurar relatório', 'drawer') %}
+  <form method="get" action="{{ url_for('relatorios.index') }}" id="form-opcoes" class="dialog-body">
+    <p class="caption">Campos com * são obrigatórios.</p>
+    <div class="field">
+      <label for="op-tipo">Relatório <span class="required" aria-hidden="true">*</span></label>
+      <select id="op-tipo" name="tipo" required>{% for chave, t in tipos.items() %}<option value="{{ chave }}" {{ 'selected' if chave == tipo }}>{{ t.titulo }}</option>{% endfor %}</select>
+    </div>
+    {% if tipo == 'gorjetas' %}
+      <div class="field">
+        <label for="op-quinzena">Quinzena <span class="required" aria-hidden="true">*</span></label>
+        <select id="op-quinzena" name="periodo_id" required>{% for q in quinzenas %}<option value="{{ q.id }}" {{ 'selected' if q.id == p.periodo_id }}>{{ q.referencia }}{{ ' (fechada)' if q.fechado }}</option>{% endfor %}</select>
+      </div>
+      {{ ui.field('variante', 'Versão', p.variante, 'select', True, opcoes=variantes.items() | list, id='op-variante') }}
+    {% else %}
+      <div class="form-grid">
+        {% if tipo != 'metas' %}
+        <div class="field">
+          <label for="op-mes">Mês <span class="required" aria-hidden="true">*</span></label>
+          <select id="op-mes" name="mes" required>{% for m in range(1, 13) %}<option value="{{ m }}" {{ 'selected' if m == p.mes }}>{{ meses[m] }}</option>{% endfor %}</select>
+        </div>
+        {% endif %}
+        {{ ui.field('ano', 'Ano', p.ano, 'number', True, id='op-ano', attrs='min="2000" max="2100"') }}
+      </div>
+      {% if tipo == 'dre_gerencial' %}
+        {{ ui.field('regime', 'Base de apuração', p.regime, 'select', True, opcoes=[('competencia', 'Competência (ajustada)'), ('caixa', 'Caixa puro')], id='op-regime') }}
+      {% endif %}
+      {% if tipo in ('dre_gerencial', 'caixa', 'contabil') %}
+        <label class="check"><input type="checkbox" name="composicao" value="1" {{ 'checked' if p.composicao }}>Incluir composição de cada linha</label>
+        <input type="hidden" name="composicao" value="0">
+      {% endif %}
+    {% endif %}
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-opcoes" class="btn primary">Atualizar prévia</button>
+  </div>
+{% endcall %}
+{% endblock %}

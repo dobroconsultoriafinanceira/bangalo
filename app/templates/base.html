@@ -1,181 +1,160 @@
+{% import "_ui.html" as ui %}
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>{% block titulo %}Bangalô{% endblock %} · Bangalô Financeiro</title>
   <link rel="icon" href="{{ url_for('static', filename='img/favicon.png') }}" type="image/png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    // Paleta da marca Bangalô (amostrada do logotipo: laranja + bolota marrom)
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            bangalo: {
-              50:  '#FBF0E9',
-              100: '#F6DCCB',
-              200: '#EBB595',
-              300: '#E08E60',
-              400: '#D67240',
-              500: '#CD5C27',   /* laranja primário (amostrado do logo) */
-              600: '#B44E20',
-              700: '#8E3D19',
-              800: '#6F2F13',   /* marrom bolota (amostrado do logo) */
-              900: '#5A2610',
-            },
-            creme: '#FAF7F2',
-            tinta: '#2B2B2B',
-            borda: '#E7E1D8',
-            ok:    '#2E7D32',
-            alerta:'#B8860B',
-            erro:  '#B3261E',
-          },
-          fontFamily: {
-            titulo: ['Poppins', 'sans-serif'],
-            corpo: ['Inter', 'sans-serif'],
-          },
-        },
-      },
-    };
-  </script>
-  <style>
-    body { font-family: 'Inter', sans-serif; }
-    h1, h2, h3, .font-titulo { font-family: 'Poppins', sans-serif; }
-    .num { font-variant-numeric: tabular-nums; text-align: right; }
-    [x-cloak] { display: none; }
-
-    /* ── Spring animations (transitions.dev spirit) ── */
-    @keyframes springUp {
-      0%   { opacity: 0; transform: translateY(18px) scale(.98); }
-      65%  { opacity: 1; transform: translateY(-3px) scale(1.005); }
-      100% { opacity: 1; transform: none; }
-    }
-    @keyframes springFade {
-      from { opacity: 0; } to { opacity: 1; }
-    }
-    .s-in   { animation: springUp  .55s cubic-bezier(.34,1.56,.64,1) both; }
-    .s-fade { animation: springFade .4s ease both; }
-    /* stagger delays — add .d1 .. .d8 alongside .s-in */
-    .d1{animation-delay:.04s}.d2{animation-delay:.10s}.d3{animation-delay:.16s}
-    .d4{animation-delay:.22s}.d5{animation-delay:.28s}.d6{animation-delay:.34s}
-    .d7{animation-delay:.40s}.d8{animation-delay:.46s}
-    /* spring hover — cards levantam com mola */
-    .s-hover {
-      transition: transform .22s cubic-bezier(.34,1.56,.64,1),
-                  box-shadow .22s ease;
-    }
-    .s-hover:hover { transform: translateY(-3px); box-shadow: 0 14px 36px -12px rgba(90,38,16,.22); }
-    /* links e botões: fade suave */
-    a, button { transition: opacity .15s ease, background-color .15s ease, color .15s ease; }
-    /* delta badges */
-    .delta-up   { color: #2E7D32; background: #E8F5E9; }
-    .delta-down { color: #B3261E; background: #FDECEA; }
-    .delta-badge { display:inline-flex; align-items:center; gap:3px;
-                   font-size:11px; font-weight:600; padding:2px 7px;
-                   border-radius:999px; letter-spacing:.02em; }
-    @media (prefers-reduced-motion: reduce) {
-      .s-in, .s-fade { animation: none; }
-      .s-hover { transition: none; }
-    }
-  </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/clareza.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/clareza-app.css') }}">
   {% block head_extra %}{% endblock %}
 </head>
-<body class="bg-creme text-tinta min-h-screen">
-<div class="flex min-h-screen">
+<body>
+{% set rota = request.endpoint or '' %}
+{# Itens do menu: (rótulo, endpoint, ícone, ativo, visível) — URLs reais via url_for #}
+{% set menu = [
+  ('Início', 'dashboard.home', 'house', rota.startswith('dashboard'), True),
+  ('Movimentações', 'conciliacao.itau', 'arrow-left-right', rota.startswith('conciliacao'), True),
+  ('Caixa', 'fluxo_caixa.visao_mensal_view', 'wallet', rota.startswith('fluxo_caixa'), True),
+  ('DRE', 'dre.gerencial', 'file-text', rota in ('dre.gerencial', 'dre.index'), True),
+  ('Fechamento', 'dre.contabil', 'check', rota.startswith('dre.contabil'), True),
+  ('Gorjetas', 'gorjetas.listar', 'coffee', rota.startswith('gorjetas'), True),
+  ('Metas', 'metas.painel', 'target', rota in ('metas.painel', 'metas.registro_diario'), True),
+  ('Histórico', 'metas.historico', 'clock', rota == 'metas.historico', True),
+  ('Cadastros', 'cadastros.equipe', 'users', rota.startswith('cadastros'), True),
+  ('Relatórios', 'relatorios.index', 'file', rota.startswith('relatorios'), current_user.pode('relatorios.gerar')),
+  ('Administração', 'admin.integracoes', 'settings', rota.startswith('admin'), current_user.pode('admin.acessar')),
+] %}
+<a href="#main-content" class="skip-link">Pular para o conteúdo</a>
 
-  <!-- Sidebar -->
-  <aside id="sidebar" class="hidden lg:flex flex-col w-60 shrink-0 bg-white border-r border-borda">
-    <div class="px-5 py-5 border-b border-borda">
-      <a href="{{ url_for('dashboard.home') }}" class="flex items-center">
-        <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Bangalô"
-             class="h-8 w-auto" onerror="this.style.display='none';document.getElementById('wordmark').style.display='inline-flex'">
-        <span id="wordmark" style="display:none"
-              class="font-titulo font-bold text-2xl text-bangalo-500 lowercase tracking-tight items-center">bangal<span class="text-bangalo-800">o</span></span>
+<aside class="sidebar">
+  <a class="logo" href="{{ url_for('dashboard.home') }}" aria-label="Bangalô — Início">
+    <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Bangalô">
+  </a>
+  <nav aria-label="Principal">
+    {% for rotulo, endpoint, icone, ativo, visivel in menu if visivel %}
+      <a href="{{ url_for(endpoint) }}" class="nav-link {{ 'active' if ativo }}" {% if ativo %}aria-current="page"{% endif %}>{{ ui.icon(icone) }}{{ rotulo }}</a>
+    {% endfor %}
+  </nav>
+  <div class="sidebar-footer">
+    {% if shell_itau.ultima %}
+      <span class="sync-dot {{ 'stale' if shell_itau.atrasado }}"></span>
+      <a href="{{ url_for('conciliacao.itau') }}">Itaú atualizado {{ shell_itau.ultima | data('%d/%m às %Hh%M') }}</a>
+      {% if shell_itau.atrasado %}<br><small class="warning-text">Sem sincronizar há mais de {{ shell_itau.limite_h }} h</small>{% endif %}
+    {% else %}
+      <span class="sync-dot off"></span><a href="{{ url_for('conciliacao.itau') }}">Itaú ainda não sincronizado</a>
+    {% endif %}
+  </div>
+</aside>
+
+<div class="shell">
+  <header class="topbar">
+    <div class="topbar-left">
+      <button type="button" class="icon-btn mobile-menu" data-open="menu-mobile" aria-label="Abrir navegação">{{ ui.icon('menu') }}</button>
+      <a class="mobile-logo" href="{{ url_for('dashboard.home') }}" aria-label="Bangalô — Início">
+        <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Bangalô">
       </a>
-      <p class="text-[11px] text-gray-400 mt-2 tracking-wide">Dobro Consultoria Financeira</p>
-    </div>
-    <nav class="flex-1 px-3 py-4 space-y-1 text-sm">
-      {% set rota = request.endpoint or '' %}
-      {% macro item(url, icone, rotulo, ativo) -%}
-        <a href="{{ url }}"
-           class="flex items-center gap-3 px-3 py-2 rounded-lg {{ 'bg-bangalo-50 text-bangalo-700 font-semibold' if ativo else 'text-gray-600 hover:bg-gray-50' }}">
-          <i data-lucide="{{ icone }}" class="w-4 h-4"></i>{{ rotulo }}
-        </a>
-      {%- endmacro %}
-      {{ item(url_for('dashboard.home'), 'layout-dashboard', 'Dashboard', rota == 'dashboard.home') }}
-      {{ item(url_for('dre.index'), 'trending-up', 'DRE Gerencial', rota.startswith('dre')) }}
-      {{ item(url_for('fluxo_caixa.visao_mensal_view'), 'arrow-right-left', 'Fluxo de Caixa', rota.startswith('fluxo_caixa')) }}
-      {{ item(url_for('gorjetas.listar'), 'hand-coins', 'Gorjetas', rota.startswith('gorjetas')) }}
-      {{ item(url_for('metas.painel'), 'target', 'Metas', rota.startswith('metas')) }}
-      {{ item(url_for('cadastros.categorias'), 'folder-cog', 'Cadastros', rota.startswith('cadastros')) }}
-      {% if current_user.eh_consultoria %}
-        {{ item(url_for('admin.usuarios'), 'shield', 'Admin', rota.startswith('admin')) }}
+      <strong class="restaurant-name">Restaurante Bangalô</strong>
+      {% if shell_periodo %}
+        {% set ano_p, mes_p = shell_periodo.atual %}
+        <span class="divider"></span>
+        <button type="button" class="period-top" data-open="dlg-periodo" aria-label="Período: {{ mes_p | nome_mes }} de {{ ano_p }}. Trocar período"
+                style="color:var(--action)">{{ mes_p | nome_mes }} {{ ano_p }} {{ ui.icon('chevron-down') }}</button>
       {% endif %}
-    </nav>
-    <div class="px-5 py-4 border-t border-borda text-sm">
-      <p class="font-medium truncate">{{ current_user.nome }}</p>
-      <p class="text-xs text-gray-400 capitalize">{{ current_user.role }}</p>
-      <form method="post" action="{{ url_for('auth.logout') }}" class="mt-2">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="text-bangalo-600 hover:underline text-xs flex items-center gap-1">
-          <i data-lucide="log-out" class="w-3.5 h-3.5"></i>Sair
-        </button>
-      </form>
     </div>
-  </aside>
-
-  <!-- Conteúdo -->
-  <div class="flex-1 flex flex-col min-w-0">
-    <!-- Topbar mobile -->
-    <header class="lg:hidden flex items-center justify-between bg-white border-b border-borda px-4 py-3">
-      <button onclick="document.getElementById('menu-mobile').classList.toggle('hidden')" aria-label="Menu">
-        <i data-lucide="menu" class="w-6 h-6 text-bangalo-600"></i>
+    <div class="topbar-right">
+      <button type="button" class="profile-trigger" data-open="menu-perfil" aria-label="Abrir perfil de {{ current_user.nome }}">
+        <span class="avatar">{{ (current_user.nome or '?')[:1] | upper }}</span>
+        <span class="profile-name">{{ current_user.nome.split(' ')[0] }} {{ ui.icon('chevron-down') }}</span>
       </button>
-      <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Bangalô" class="h-7 w-auto">
-      <form method="post" action="{{ url_for('auth.logout') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button aria-label="Sair"><i data-lucide="log-out" class="w-5 h-5 text-gray-500"></i></button>
-      </form>
-    </header>
-    <nav id="menu-mobile" class="lg:hidden hidden bg-white border-b border-borda px-4 py-2 text-sm grid grid-cols-2 gap-1">
-      <a class="py-2 text-gray-700" href="{{ url_for('dashboard.home') }}">Dashboard</a>
-      <a class="py-2 text-gray-700" href="{{ url_for('dre.index') }}">DRE Gerencial</a>
-      <a class="py-2 text-gray-700" href="{{ url_for('fluxo_caixa.visao_mensal_view') }}">Fluxo de Caixa</a>
-      <a class="py-2 text-gray-700" href="{{ url_for('gorjetas.listar') }}">Gorjetas</a>
-      <a class="py-2 text-gray-700" href="{{ url_for('metas.painel') }}">Metas</a>
-      <a class="py-2 text-gray-700" href="{{ url_for('cadastros.categorias') }}">Cadastros</a>
-      {% if current_user.eh_consultoria %}<a class="py-2 text-gray-700" href="{{ url_for('admin.usuarios') }}">Admin</a>{% endif %}
-    </nav>
+    </div>
+  </header>
 
-    <!-- Flash messages -->
+  <main class="main" id="main-content" tabindex="-1">
     {% with mensagens = get_flashed_messages(with_categories=true) %}
       {% if mensagens %}
-        <div class="px-4 lg:px-8 pt-4 space-y-2" id="toasts">
+        <div class="flash-stack" aria-live="polite">
           {% for categoria, msg in mensagens %}
-            <div class="rounded-lg px-4 py-3 text-sm border
-              {{ 'bg-green-50 border-green-200 text-ok' if categoria == 'success'
-                 else 'bg-red-50 border-red-200 text-erro' if categoria == 'error'
-                 else 'bg-amber-50 border-amber-200 text-alerta' }}">
-              {{ msg }}
+            {% set tom = {'success': 'success', 'error': 'error', 'warning': 'warn'}.get(categoria, '') %}
+            <div class="notice {{ tom }}" role="{{ 'alert' if tom == 'error' else 'status' }}">
+              <p>{{ msg }}</p>
+              <button type="button" data-dismiss aria-label="Dispensar mensagem">{{ ui.icon('x') }}</button>
             </div>
           {% endfor %}
         </div>
-        <script>setTimeout(() => document.getElementById('toasts')?.remove(), 6000);</script>
       {% endif %}
     {% endwith %}
-
-    <main class="flex-1 px-4 lg:px-8 py-6 s-fade">
-      {% block conteudo %}{% endblock %}
-    </main>
-  </div>
+    {% block conteudo %}{% endblock %}
+  </main>
 </div>
 
-<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
-<script>lucide.createIcons();</script>
+<nav class="mobile-bottom" aria-label="Atalhos">
+  {% for rotulo, endpoint, icone, ativo, visivel in [menu[0], menu[1], menu[2]] %}
+    <a href="{{ url_for(endpoint) }}" class="{{ 'active' if ativo }}" {% if ativo %}aria-current="page"{% endif %}>{{ ui.icon(icone) }}{{ 'Movimentos' if rotulo == 'Movimentações' else rotulo }}</a>
+  {% endfor %}
+  <a href="#" data-open="menu-mobile">{{ ui.icon('menu') }}Mais</a>
+</nav>
+
+{% call ui.dialog('menu-mobile', 'Navegação', 'fullscreen') %}
+  <div class="dialog-body">
+    <nav aria-label="Principal (celular)">
+      {% for rotulo, endpoint, icone, ativo, visivel in menu if visivel %}
+        <a href="{{ url_for(endpoint) }}" class="nav-link {{ 'active' if ativo }}" {% if ativo %}aria-current="page"{% endif %}>{{ ui.icon(icone) }}{{ rotulo }}</a>
+      {% endfor %}
+    </nav>
+  </div>
+  <div class="dialog-actions">
+    <button type="button" class="btn primary" data-close>Fechar</button>
+  </div>
+{% endcall %}
+
+{% if shell_periodo %}
+{% set ano_p, mes_p = shell_periodo.atual %}
+{% set ignorar = ('ano', 'mes', 'inicio', 'fim', 'previa', 'nome', 'destaque', 'novo', 'revisar', 'categoria', 'pagina') %}
+{% set args_volta = dict(request.view_args or {}) %}
+{% for k, v in request.args.items() if k not in ignorar %}{% set _ = args_volta.update({k: v}) %}{% endfor %}
+{% call ui.dialog('dlg-periodo', 'Período', 'popover') %}
+  <form method="post" action="{{ url_for('dashboard.trocar_periodo') }}" id="form-periodo" class="dialog-body">
+    {{ ui.csrf() }}
+    <input type="hidden" name="proximo" value="{{ url_for(request.endpoint, **args_volta) if request.endpoint else '/' }}">
+    <p class="muted">Vale como padrão para as telas por mês (início, movimentações, caixa, DRE, fechamento, metas e relatórios).</p>
+    <div class="form-grid">
+      <div class="field">
+        <label for="per-mes">Mês</label>
+        <select id="per-mes" name="mes">{% for m in range(1, 13) %}<option value="{{ m }}" {{ 'selected' if m == mes_p }}>{{ m | nome_mes }}</option>{% endfor %}</select>
+      </div>
+      <div class="field">
+        <label for="per-ano">Ano</label>
+        <input id="per-ano" type="number" name="ano" value="{{ ano_p }}" min="2000" max="2100">
+      </div>
+    </div>
+    {% if shell_periodo.escolhido %}<p class="help">Você está vendo um período diferente do mês atual.</p>{% endif %}
+  </form>
+  <div class="dialog-actions">
+    {% if shell_periodo.escolhido %}<button type="submit" form="form-periodo" name="acao" value="atual" class="btn">Voltar ao mês atual</button>{% else %}<button type="button" class="btn" data-close>Cancelar</button>{% endif %}
+    <button type="submit" form="form-periodo" class="btn primary">Aplicar</button>
+  </div>
+{% endcall %}
+{% endif %}
+
+{% call ui.dialog('menu-perfil', 'Menu do perfil', 'popover') %}
+  <div class="dialog-body">
+    <p class="row"><span class="avatar">{{ (current_user.nome or '?')[:1] | upper }}</span><strong>{{ current_user.nome }}</strong></p>
+    <p class="muted">Perfil: {{ current_user.papel_rotulo }}</p>
+    <p class="muted">{{ current_user.email }}</p>
+    <p class="muted mb-0">Restaurante Bangalô</p>
+    <p class="mt-16 mb-0"><a href="{{ url_for('auth.trocar_senha') }}">{{ ui.icon('key-round') }} Trocar minha senha</a></p>
+  </div>
+  <form method="post" action="{{ url_for('auth.logout') }}" class="dialog-actions">
+    {{ ui.csrf() }}
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" class="btn primary">Sair</button>
+  </form>
+{% endcall %}
+
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="{{ url_for('static', filename='js/clareza.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

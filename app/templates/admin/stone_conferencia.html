@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block titulo %}Conferência Stone{% endblock %}
+{% block conteudo %}
+{% set ativo = 'integracoes' %}
+{% call ui.page_header('Conferência Stone', 'O que a Stone depositou × o que está lançado no fluxo, de ' ~ (inicio | data) ~ ' a ' ~ (fim | data) ~ '.') %}
+  <a class="btn" href="{{ url_for('admin.integracoes') }}">{{ ui.icon('chevron-left') }}Integrações</a>
+{% endcall %}
+{% include "admin/_abas.html" %}
+
+<section class="metrics" aria-label="Totais do período">
+  {{ ui.metric('Repassado pela Stone', rel.total_stone | brl, 'Soma dos repasses no período',
+               fonte='Fonte: API de conciliação Stone') }}
+  {{ ui.metric('Lançado no fluxo', rel.total_fluxo | brl, 'Mesmas categorias e datas',
+               fonte='Fonte: fluxo de caixa (planilha)') }}
+  {{ ui.metric('Diferença', rel.diferenca | brl, 'Stone menos fluxo',
+               'bad' if rel.diferenca != 0 else '') }}
+</section>
+
+{% if rel.erros %}
+  {% call ui.notice('warn') %}
+    <p>Alguns dias não puderam ser consultados: {% for dia, erro in rel.erros %}{{ dia | data }}{% if not loop.last %}, {% endif %}{% endfor %}.
+    O arquivo de um dia só fica pronto depois das 5h do dia seguinte.</p>
+  {% endcall %}
+{% endif %}
+
+<section class="surface" aria-labelledby="t-conf">
+  <div class="section-top"><h2 id="t-conf">Dia a dia, por bandeira</h2></div>
+  {% if rel.linhas %}
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Dia</th><th>Bandeira</th><th class="num">Stone</th><th class="num">Fluxo</th><th class="num">Diferença</th></tr></thead>
+      <tbody>
+        {% for l in rel.linhas %}
+        <tr>
+          <td data-label="Dia" class="nowrap">{{ l.dia | data }}</td>
+          <td data-label="Bandeira" class="wrap">{{ l.categoria }}{% if l.sem_categoria %} {{ ui.badge('sem categoria no plano', 'amber') }}{% endif %}</td>
+          <td data-label="Stone" class="num">{{ l.stone | brl }}</td>
+          <td data-label="Fluxo" class="num">{{ l.fluxo | brl }}</td>
+          <td data-label="Diferença" class="num {{ 'bad' if l.diferenca != 0 }}">{{ l.diferenca | brl }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="table-meta">
+    <span>Nada foi gravado: esta tela só compara. As linhas de cartão continuam entrando pela planilha.</span>
+  </div>
+  {% else %}
+    {{ ui.empty('Nenhum repasse no período', 'A Stone não registrou depósitos nessas datas.', 'landmark') }}
+  {% endif %}
+</section>
+{% endblock %}

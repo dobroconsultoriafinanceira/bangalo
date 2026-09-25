@@ -1,26 +1,22 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Nova senha · Bangalô</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>body{background:#FAF7F2}</style>
-</head>
-<body class="min-h-screen flex items-center justify-center px-4">
-  <form method="post" class="w-full max-w-sm bg-white rounded-2xl shadow-sm border p-6 space-y-4" style="border-color:#E7E1D8">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <h1 class="text-lg font-semibold">Definir nova senha</h1>
-    {% with mensagens = get_flashed_messages(with_categories=true) %}
-      {% for categoria, msg in mensagens %}
-        <div class="rounded-lg px-3 py-2 text-sm bg-red-50 border border-red-200 text-red-800">{{ msg }}</div>
-      {% endfor %}
-    {% endwith %}
-    <input name="senha" type="password" required minlength="8" placeholder="Nova senha (mín. 8 caracteres)"
-           class="w-full rounded-lg border px-3 py-2 text-sm" style="border-color:#E7E1D8">
-    <input name="confirmar" type="password" required minlength="8" placeholder="Confirmar nova senha"
-           class="w-full rounded-lg border px-3 py-2 text-sm" style="border-color:#E7E1D8">
-    <button class="w-full py-2.5 rounded-lg text-white text-sm" style="background:#CD5C27">Salvar senha</button>
-  </form>
-</body>
-</html>
+{% extends "auth/_layout.html" %}
+{% block titulo %}Nova senha{% endblock %}
+{% block conteudo %}
+<form method="post" class="surface" data-busy="Salvando…">
+  {{ ui.csrf() }}
+  <h1>Definir nova senha</h1>
+  <p class="auth-subtitle">Use pelo menos 10 caracteres, com letras e números ou símbolos. O link vale uma única vez.</p>
+  <div class="field">
+    <label for="senha">Nova senha <span class="required" aria-hidden="true">*</span></label>
+    <div class="password-wrap">
+      <input id="senha" name="senha" type="password" required minlength="10" maxlength="200" autocomplete="new-password" autofocus>
+      <button type="button" class="btn ghost small" data-toggle-senha="senha" aria-controls="senha" aria-pressed="false">Mostrar</button>
+    </div>
+  </div>
+  <div class="field">
+    <label for="confirmar">Confirmar nova senha <span class="required" aria-hidden="true">*</span></label>
+    <input id="confirmar" name="confirmar" type="password" required minlength="10" maxlength="200" autocomplete="new-password">
+  </div>
+  <button type="submit" class="btn primary">Salvar senha</button>
+  <p class="auth-footer mb-0"><a href="{{ url_for('auth.login') }}">Voltar para entrar</a></p>
+</form>
+{% endblock %}

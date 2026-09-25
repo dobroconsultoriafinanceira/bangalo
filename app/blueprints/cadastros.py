@@ -14,6 +14,8 @@ from app.models.gorjetas import (
     Setor,
 )
 from app.services import auditoria
+from app.utils.permissoes import requer
+from app.utils.seguranca import destino_seguro
 
 bp = Blueprint("cadastros", __name__)
 
@@ -40,7 +42,7 @@ def categorias():
 
 
 @bp.route("/categorias/salvar", methods=["POST"])
-@login_required
+@requer("cadastros.editar")
 def salvar_categoria():
     cat_id = request.form.get("id", type=int)
     nome = (request.form.get("nome") or "").strip()
@@ -78,13 +80,22 @@ def fornecedores():
 
 
 @bp.route("/fornecedores/salvar", methods=["POST"])
-@login_required
+@requer("cadastros.editar")
 def salvar_fornecedor():
     forn_id = request.form.get("id", type=int)
     nome = (request.form.get("nome") or "").strip()
+    # cadastro contextual (ex.: durante a revisão de um movimento) volta para a origem
+    destino = destino_seguro(request.form.get("proximo"), url_for("cadastros.fornecedores"))
     if not nome:
         flash("Informe o nome do fornecedor.", "error")
-        return redirect(url_for("cadastros.fornecedores"))
+        return redirect(destino)
+
+    duplicado = db.session.execute(
+        db.select(Fornecedor).filter(Fornecedor.nome.ilike(nome), Fornecedor.id != (forn_id or 0))
+    ).scalar_one_or_none()
+    if duplicado:
+        flash(f"Já existe o fornecedor “{duplicado.nome}”. Edite o cadastro existente em vez de criar outro.", "error")
+        return redirect(destino)
 
     if forn_id:
         forn = db.session.get(Fornecedor, forn_id) or abort(404)
@@ -97,8 +108,11 @@ def salvar_fornecedor():
     forn.observacao = (request.form.get("observacao") or "").strip() or None
     forn.ativo = "ativo" in request.form
     db.session.commit()
-    flash("Fornecedor salvo.", "success")
-    return redirect(url_for("cadastros.fornecedores"))
+    flash(f"Fornecedor “{forn.nome}” salvo.", "success")
+    if "conciliacao" in destino:
+        # voltou da revisão de um movimento: já deixa o fornecedor escolhido
+        destino += ("&" if "?" in destino else "?") + f"fornecedor={forn.id}"
+    return redirect(destino)
 
 
 # ---------- Equipe (setores, funções, colaboradores) ----------
@@ -112,15 +126,21 @@ def equipe():
         db.select(Colaborador).order_by(Colaborador.nome)
     ).scalars().all()
     soma_percentuais = sum((Decimal(s.percentual_rateio) for s in setores if s.ativo), Decimal("0"))
+    aba = request.args.get("aba") if request.args.get("aba") in ("colaboradores", "funcoes", "setores") else "colaboradores"
+    busca = (request.args.get("q") or "").strip()
+    if busca:
+        termo = busca.casefold()
+        colaboradores = [c for c in colaboradores if termo in c.nome.casefold()]
     return render_template(
         "cadastros/equipe.html",
         setores=setores, funcoes=funcoes, colaboradores=colaboradores,
         registros=REGISTROS_COLABORADOR, soma_percentuais=soma_percentuais,
+        aba=aba, busca=busca,
     )
 
 
 @bp.route("/setores/salvar", methods=["POST"])
-@login_required
+@requer("cadastros.editar")
 def salvar_setor():
     setor_id = request.form.get("id", type=int)
     nome = (request.form.get("nome") or "").strip()
@@ -143,11 +163,11 @@ def salvar_setor():
     setor.ativo = "ativo" in request.form
     db.session.commit()
     flash("Setor salvo. Confira se a soma dos percentuais dá 100%.", "success")
-    return redirect(url_for("cadastros.equipe"))
+    return redirect(url_for("cadastros.equipe", aba="setores"))
 
 
 @bp.route("/funcoes/salvar", methods=["POST"])
-@login_required
+@requer("cadastros.editar")
 def salvar_funcao():
     funcao_id = request.form.get("id", type=int)
     nome = (request.form.get("nome") or "").strip()
@@ -166,11 +186,11 @@ def salvar_funcao():
     funcao.pontos_padrao = _decimal(request.form.get("pontos_padrao"), "1")
     db.session.commit()
     flash("Função salva.", "success")
-    return redirect(url_for("cadastros.equipe"))
+    return redirect(url_for("cadastros.equipe", aba="funcoes"))
 
 
 @bp.route("/colaboradores/salvar", methods=["POST"])
-@login_required
+@requer("cadastros.editar")
 def salvar_colaborador():
     colab_id = request.form.get("id", type=int)
     nome = (request.form.get("nome") or "").strip()

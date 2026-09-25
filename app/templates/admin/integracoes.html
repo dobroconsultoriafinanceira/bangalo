@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block titulo %}Integrações{% endblock %}
+{% block conteudo %}
+{% set ativo = 'integracoes' %}
+{% call ui.page_header('Integrações', 'De onde vêm os dados, quando foram atualizados e o que está indisponível.') %}{% endcall %}
+{% include "admin/_abas.html" %}
+
+{% macro situacao(configurado, ultima, automatico, intervalo) -%}
+  {%- if not configurado -%}{{ ui.badge('Não configurado') }}
+  {%- elif ultima -%}{{ ui.badge('Conectado', 'green') }}
+  {%- else -%}{{ ui.badge('Sem sincronização', 'amber') }}{%- endif -%}
+  {% if configurado %} {{ ui.badge('Automático a cada ' ~ intervalo ~ ' min', 'orange') if automatico else ui.badge('Só manual') }}{% endif %}
+{%- endmacro %}
+
+<section class="surface" aria-labelledby="t-integ">
+  <h2 id="t-integ" class="sr-only">Integrações</h2>
+
+  <div class="integration-item">
+    <span class="integration-logo" aria-hidden="true">I</span>
+    <div>
+      <h3 class="mb-0">Itaú <span class="row" style="display:inline-flex;vertical-align:middle">{{ situacao(itau.configurado, itau.ultima, itau.automatico, itau.intervalo) }}</span></h3>
+      <p class="muted mb-0">Extrato da conta PJ · {% if itau.ultima %}atualizado em {{ itau.ultima | data('%d/%m às %Hh%M') }}{% else %}nunca sincronizado{% endif %}</p>
+    </div>
+    <button type="button" class="btn" data-open="dlg-itau">Ver detalhes</button>
+  </div>
+
+  <div class="integration-item">
+    <span class="integration-logo green" aria-hidden="true">G</span>
+    <div>
+      <h3 class="mb-0">Google Sheets <span class="row" style="display:inline-flex;vertical-align:middle">{{ situacao(google.configurado, google.ultima, google.automatico, google.intervalo) }}</span></h3>
+      <p class="muted mb-0">Planilha de fluxo de caixa (só leitura) · {% if google.ultima %}atualizado em {{ google.ultima | data('%d/%m às %Hh%M') }}{% else %}nunca sincronizado{% endif %}</p>
+    </div>
+    <button type="button" class="btn" data-open="dlg-google">Ver detalhes</button>
+  </div>
+
+  <div class="integration-item">
+    <span class="integration-logo green" aria-hidden="true">S</span>
+    <div>
+      <h3 class="mb-0">Stone <span class="row" style="display:inline-flex;vertical-align:middle">{{ ui.badge('Credenciais ativas', 'green') if stone.configurado else (ui.badge('Credenciais incompletas', 'amber') if stone.recebidas else ui.badge('Não configurado')) }}</span></h3>
+      <p class="muted mb-0">Recebíveis por bandeira · {% if stone.ultimo_dia %}último dia importado {{ stone.ultimo_dia | data }} ({{ stone.lancamentos }} lançamentos){% else %}nada importado ainda{% endif %}</p>
+    </div>
+    <button type="button" class="btn" data-open="dlg-stone">Ver detalhes</button>
+  </div>
+</section>
+<p class="help mt-16">Não há atualização em tempo real (webhook): cada integração roda na rotina configurada ou pelo botão de sincronizar. Credenciais ficam só no servidor e nunca aparecem nesta tela.</p>
+
+{% call ui.dialog('dlg-itau', 'Itaú — extrato da conta PJ', 'drawer') %}
+  <div class="dialog-body">
+    <dl class="pairs">
+      <div><dt>Configuração</dt><dd>{{ 'Credenciais e certificado presentes' if itau.configurado else 'Incompleta (credenciais, certificado ou contas)' }}</dd></div>
+      <div><dt>Ambiente</dt><dd>{{ itau.ambiente or '—' }}</dd></div>
+      <div><dt>Contas</dt><dd>{{ itau.contas }}</dd></div>
+      <div><dt>Rotina automática</dt><dd>{{ ('A cada ' ~ itau.intervalo ~ ' min, últimos ' ~ itau.janela ~ ' dias') if itau.automatico else 'Desligada' }}</dd></div>
+      <div><dt>Último sucesso</dt><dd>{{ itau.ultima | data('%d/%m/%Y %H:%M') if itau.ultima else 'Nunca' }}</dd></div>
+      <div><dt>Saldo disponível</dt><dd>{{ itau.saldo.disponivel | brl if itau.saldo else '—' }}</dd></div>
+    </dl>
+    {% if itau.configurado %}
+    <form method="post" action="{{ url_for('conciliacao.itau_sincronizar') }}" class="mt-24" data-busy="Sincronizando…">
+      {{ ui.csrf() }}
+      {{ ui.field('inicio', 'Buscar no Itaú desde', '', 'date', True, id='it-inicio') }}
+      <button type="submit" class="btn primary">Sincronizar agora</button>
+    </form>
+    {% else %}
+      {% call ui.notice('warn') %}<p>Preencha ITAU_* no servidor e gere o certificado (README › Integração Itaú).</p>{% endcall %}
+    {% endif %}
+  </div>
+  <div class="dialog-actions"><a class="btn" href="{{ url_for('conciliacao.itau') }}">Abrir movimentações</a><button type="button" class="btn primary" data-close>Fechar</button></div>
+{% endcall %}
+
+{% call ui.dialog('dlg-google', 'Google Sheets — fluxo de caixa', 'drawer') %}
+  <div class="dialog-body">
+    <dl class="pairs">
+      <div><dt>Configuração</dt><dd>{{ 'Conta de serviço conectada' if google.configurado else 'Não configurada' }}</dd></div>
+      <div><dt>Rotina automática</dt><dd>{{ ('A cada ' ~ google.intervalo ~ ' min') if google.automatico else 'Desligada' }}</dd></div>
+      <div><dt>Último sucesso</dt><dd>{{ google.ultima | data('%d/%m/%Y %H:%M') if google.ultima else 'Nunca' }}</dd></div>
+    </dl>
+    <p class="help mt-16">Puxa a planilha de fluxo (só leitura) e atualiza os lançamentos do ano, sem duplicar.</p>
+    {% if google.configurado %}
+    <form method="post" action="{{ url_for('admin.google_sincronizar') }}" data-busy="Sincronizando…">
+      {{ ui.csrf() }}<button type="submit" class="btn primary">Sincronizar agora</button>
+    </form>
+    {% else %}
+      {% call ui.notice('warn') %}<p>Configure a conta de serviço do Google no servidor (ver README).</p>{% endcall %}
+    {% endif %}
+  </div>
+  <div class="dialog-actions"><button type="button" class="btn primary" data-close>Fechar</button></div>
+{% endcall %}
+
+{% call ui.dialog('dlg-stone', 'Stone — conciliação de recebíveis', 'drawer') %}
+  <div class="dialog-body">
+    <dl class="pairs">
+      <div><dt>Credenciais</dt><dd>{{ 'Ativas' if stone.configurado else ('Incompletas' if stone.recebidas else 'Não configuradas') }}</dd></div>
+      {% if stone.recebidas %}<div><dt>Já no servidor</dt><dd>{{ stone.recebidas | join(', ') }}</dd></div>{% endif %}
+      {% if stone.faltando %}<div><dt>Falta pedir à Stone</dt><dd>{{ stone.faltando | join(' · ') }}</dd></div>{% endif %}
+      <div><dt>Último dia importado</dt><dd>{{ stone.ultimo_dia | data if stone.ultimo_dia else '—' }}</dd></div>
+      <div><dt>Lançamentos Stone</dt><dd>{{ stone.lancamentos }}</dd></div>
+    </dl>
+    <h3 class="mt-24">Entradas de cartão do período</h3>
+    <form method="post" action="{{ url_for('admin.stone_importar') }}" data-busy="Importando da Stone…"
+          data-confirm="Importar as entradas de cartão do período pela Stone? As linhas de cartão que vieram da planilha nesse intervalo são substituídas.">
+      {{ ui.csrf() }}
+      <div class="form-grid">
+        {{ ui.field('inicio', 'Início', '', 'date', True, id='st-inicio') }}
+        {{ ui.field('fim', 'Fim', '', 'date', True, id='st-fim') }}
+      </div>
+      <div class="row">
+        <button type="submit" class="btn primary" {{ 'disabled' if not stone.configurado }}>Importar repasses</button>
+        <button type="submit" class="btn" formaction="{{ url_for('admin.stone_conferir') }}"
+                formnovalidate {{ 'disabled' if not stone.configurado }}>Só conferir</button>
+        <button type="submit" class="btn" formaction="{{ url_for('admin.stone_agenda') }}"
+                formnovalidate {{ 'disabled' if not stone.configurado }}>Atualizar agenda de recebíveis</button>
+      </div>
+      <p class="help">A Stone é a fonte das entradas de cartão (Visa, Master, ELO, Amex, débitos): importar cria os lançamentos do período e substitui as linhas de cartão que vieram da planilha. “Só conferir” compara sem gravar nada. O arquivo de um dia fica pronto depois das 5h do dia seguinte.</p>
+      {% if not stone.configurado %}<p class="help">Faltam credenciais para usar a API.</p>{% endif %}
+    </form>
+    <h3 class="mt-24">Ou importar o CSV exportado</h3>
+    <form method="post" action="{{ url_for('admin.stone_csv') }}" enctype="multipart/form-data" data-busy="Importando…">
+      {{ ui.csrf() }}
+      <div class="field"><label for="st-csv">Arquivo de conciliação (.csv) <span class="required" aria-hidden="true">*</span></label>
+        <input id="st-csv" type="file" name="arquivo" accept=".csv" required></div>
+      <button type="submit" class="btn">Importar CSV</button>
+    </form>
+  </div>
+  <div class="dialog-actions"><button type="button" class="btn primary" data-close>Fechar</button></div>
+{% endcall %}
+{% endblock %}

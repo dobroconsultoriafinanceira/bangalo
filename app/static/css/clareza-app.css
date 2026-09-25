@@ -1,0 +1,207 @@
+/* Clareza — adições da aplicação real (o que o protótipo não precisou ter).
+   Mesmos tokens de clareza.css; nada de cores, sombras ou fontes novas. */
+
+body{background:var(--canvas);min-height:100vh}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+/* ── Shell ─────────────────────────────────────────────────────────── */
+.sidebar .logo{display:block;padding:26px 24px 28px;line-height:0}
+.sidebar .logo img{height:30px;width:auto;display:block}
+.sidebar-footer a{color:var(--muted)}
+.sidebar-footer .sync-dot.stale{background:var(--warning)}
+.sidebar-footer .sync-dot.off{background:var(--input)}
+.nav-link .icon,.mobile-bottom .icon{width:20px;height:20px}
+.topbar .restaurant-name{font-weight:600}
+.topbar .profile-trigger{display:inline-flex;align-items:center;gap:0;color:var(--ink);font-weight:500;padding:0 4px;border-radius:8px}
+.topbar .profile-trigger:hover{background:var(--canvas)}
+.topbar .period-top{display:inline-flex;align-items:center;gap:6px;min-height:44px}
+.mobile-logo{display:none;line-height:0}
+.mobile-logo img{height:24px;width:auto}
+@media(max-width:1199px){.mobile-logo{display:inline-block}.topbar .restaurant-name{display:none}}
+
+/* ── Feedback do servidor (flash) ──────────────────────────────────── */
+.flash-stack{margin-bottom:24px}
+.flash-stack .notice{margin-bottom:12px;justify-content:space-between}
+.flash-stack .notice button{background:transparent;border:0;color:inherit;min-height:32px;min-width:32px}
+
+/* ── Diálogos nativos (<dialog>): foco contido, Esc e retorno ao acionador ── */
+dialog.dialog{padding:0;border:0;color:var(--ink)}
+dialog.dialog:not([open]){display:none}
+dialog.dialog::backdrop{background:rgba(22,30,42,.28)}
+dialog.dialog.drawer{position:fixed;inset:0 0 0 auto;margin:0;height:100dvh;max-height:100dvh;width:440px;max-width:100%}
+dialog.dialog.popover{position:fixed;inset:64px 32px auto auto;margin:0;width:360px}
+dialog.dialog.fullscreen{position:fixed;inset:0;margin:0;width:100%;height:100dvh;max-width:none;max-height:none;border-radius:0}
+@media(max-width:767px){dialog.dialog.drawer{width:100%}dialog.dialog.popover{inset:auto 16px 16px 16px;width:auto}}
+.dialog-head .icon-btn{flex:none}
+.dialog-body > :last-child{margin-bottom:0}
+.dialog-actions .btn{min-width:110px}
+
+/* ── Formulários ───────────────────────────────────────────────────── */
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0 20px}
+.form-grid .span-all{grid-column:1/-1}
+.form-inline{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+.form-inline .field{margin-bottom:0}
+.field .help{margin:0}
+.field input[type=file]{padding:8px;border-style:dashed}
+.input-compact{min-height:36px!important;padding:6px 8px!important;font-size:14px!important}
+input.num,.num input{text-align:right;font-variant-numeric:tabular-nums}
+
+/* ── Tabelas ───────────────────────────────────────────────────────── */
+.table td.actions,.table th.actions{text-align:right;white-space:nowrap}
+.table td.actions form{display:inline}
+.table .muted-row td{color:var(--muted)}
+.table tr.group td{background:#F7F9FB;font-weight:600;height:44px}
+.table tr.sub td:first-child{padding-left:32px}
+.table tr.sub2 td:first-child{padding-left:48px}
+.table td.wrap{white-space:normal}
+.table-scroll{overflow:auto;max-width:100%}
+.table-scroll:focus-visible{outline:3px solid var(--action-hover);outline-offset:3px}
+
+/* Grades temporais (presença, caixa diário): rolagem interna, identificador fixo */
+.grade{border-collapse:separate;border-spacing:0}
+.grade th,.grade td{height:44px;padding:6px 8px;border-bottom:1px solid #E9EDF2}
+.grade thead th{position:sticky;top:0;z-index:2}
+.grade th:first-child,.grade td:first-child{position:sticky;left:0;background:white;z-index:1;min-width:180px;box-shadow:inset -1px 0 var(--border)}
+.grade thead th:first-child{z-index:3;background:#F7F9FB}
+.grade tbody tr:hover td:first-child{background:#F7F9FB}
+.grade td.center,.grade th.center{text-align:center}
+.grade .weekend{background:#FAFBFC}
+.grade input[type=checkbox]{margin:auto;display:block}
+
+/* ── Métricas e blocos ─────────────────────────────────────────────── */
+.metrics.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.metric-note .badge{margin-left:4px}
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}
+.kpi-mini{background:white;border:1px solid var(--border);border-radius:10px;padding:16px}
+.kpi-mini .label{font-size:12px;color:var(--muted);margin-bottom:4px}
+.kpi-mini .value{font-family:Manrope,Arial,sans-serif;font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+.grid-three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}
+@media(max-width:1199px){.grid-three{grid-template-columns:1fr 1fr}}
+@media(max-width:767px){.grid-three{grid-template-columns:1fr}.metrics.two{grid-template-columns:1fr}.metrics.two .metric:nth-child(2){padding-left:0;border:0}}
+.chart-box{position:relative;height:280px}
+@media(max-width:767px){.chart-box{height:220px}}
+.bar{height:8px;border-radius:4px;background:var(--border);overflow:hidden}
+.bar>span{display:block;height:100%;background:var(--brand)}
+.bar.ok>span{background:var(--ok)}.bar.warn>span{background:var(--warning)}.bar.danger>span{background:var(--danger)}
+.pairs{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin:0}
+.pairs dt{font-size:12px;color:var(--muted)}
+.pairs dd{margin:4px 0 0;font-weight:500;font-variant-numeric:tabular-nums}
+.divider-y>*+*{border-top:1px solid var(--border)}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.row.between{justify-content:space-between}
+.push{margin-left:auto}
+.mt-0{margin-top:0}.mb-0{margin-bottom:0}.mt-16{margin-top:16px}.mt-24{margin-top:24px}.mb-16{margin-bottom:16px}.mb-24{margin-bottom:24px}
+.text-right{text-align:right}
+.nowrap{white-space:nowrap}
+.strong{font-weight:600}
+
+/* Detalhes expansíveis (composição, linhas filhas) */
+details.expand>summary{list-style:none;cursor:pointer;min-height:44px;display:flex;align-items:center;gap:8px;color:var(--action);font-weight:500}
+details.expand>summary::-webkit-details-marker{display:none}
+details.expand>summary .icon{transition:transform 120ms ease-out}
+details.expand[open]>summary .icon{transform:rotate(90deg)}
+
+/* Composição por hover/foco: resumo; clique abre o detalhe completo */
+.hover-wrap .tooltip{right:auto;left:0}
+.table td.num .hover-wrap .tooltip{left:auto;right:0}
+
+@media print{.flash-stack,.no-print{display:none!important}}
+
+/* ── Acesso ────────────────────────────────────────────────────────── */
+.auth-brand{text-align:center;margin-bottom:32px}
+.auth-brand img{height:44px;width:auto;display:block;margin:0 auto 12px}
+.auth .surface{box-shadow:0 10px 30px #16202a0d}
+.auth .surface h1{margin-bottom:4px}
+.password-wrap{position:relative}
+.password-wrap input{padding-right:96px}
+.auth .password-wrap .btn{position:absolute;right:4px;top:0;width:auto;margin:0;min-height:44px}
+.legend span.l-green:before{background:var(--ok);height:10px;width:10px;border-radius:2px}
+.legend span.l-gray:before{background:#84909F;height:10px;width:10px;border-radius:2px}
+.legend span.l-line:before{background:var(--brand)}
+.legend.legend-free span:nth-child(2):before{background:#84909F}
+.pagination .btn.current{background:var(--tint);color:var(--action);border-color:transparent}
+.table td.wrap:first-child{min-width:220px}
+.legend span.l-bar:before{height:10px;width:10px;border-radius:2px}
+.report-types .btn{justify-content:flex-start}
+@media(max-width:1199px){.table-wrap:has(.hover-wrap){overflow:auto}}
+@media(max-width:767px){.metric:not(:first-child) .metric-value{font-size:21px;letter-spacing:-.5px;white-space:nowrap}.metric-value{overflow-wrap:anywhere}}
+.report-layout>*{min-width:0}
+.topbar .period-top{background:transparent;border:0;font-weight:500}.topbar .period-top:hover{text-decoration:underline}@media(max-width:767px){.topbar .divider{display:none}.topbar .period-top{display:inline-flex;font-size:13px}}
+
+/* grupo de caixas (permissões do usuário) */
+fieldset.field{border:0;padding:0;margin:0 0 16px;min-width:0}
+fieldset.field legend{font-weight:600;padding:0;margin-bottom:4px}
+fieldset.field label.check{align-items:flex-start}
+fieldset.field label.check input{margin-top:3px}
+
+/* celular: e-mails longos e várias ações não estouram a linha da tabela */
+@media (max-width:767px){
+  .table.responsive td{min-width:0;overflow-wrap:anywhere}
+  .table.responsive td.actions{flex-wrap:wrap;justify-content:flex-end}
+  .table.responsive td.actions:before{margin-right:auto}
+}
+
+/* ── Grade mensal do caixa ────────────────────────────────────────────
+   Leitura de planilha: cabecalho do grupo, linha de saldo e coluna Total
+   sempre a vista; entradas em verde, saidas em vermelho; colunas em zebra.
+   A cor da linha vai em background-color e os realces (zebra, fim de semana,
+   hover) em background-image, para se somarem em vez de se substituirem.
+   Camadas (z-index): corpo 3 · grupo 4-5 · rodape 5-6 · cabecalho 7-8. */
+.grade.caixa{--alt-cabecalho:58px;--fundo-linha:#fff;--zebra:linear-gradient(rgba(16,24,32,.035),rgba(16,24,32,.035))}
+.grade.caixa tbody td,.grade.caixa tfoot td{background-color:var(--fundo-linha)}
+
+/* zebra entre as colunas de dia (a primeira e a de total ficam fora) */
+.grade.caixa tbody td:nth-child(even):not(:first-child):not(:last-child),
+.grade.caixa tfoot td:nth-child(even):not(:first-child):not(:last-child){background-image:var(--zebra)}
+.grade.caixa .weekend{background-image:linear-gradient(rgba(16,24,32,.06),rgba(16,24,32,.06))}
+.grade.caixa tbody tr:hover td{background-image:linear-gradient(rgba(180,78,32,.07),rgba(180,78,32,.07))}
+
+/* tipo da linha */
+.grade.caixa tr.entrada{--fundo-linha:#F4FAF5}
+.grade.caixa tr.saida{--fundo-linha:#FEF6F5}
+.grade.caixa tr.group{--fundo-linha:#E8F4EB;font-weight:600}
+.grade.caixa tr.group.saida{--fundo-linha:#FBEBE9}
+.grade.caixa tr.sub td:first-child{padding-left:24px;font-weight:400}
+
+/* colunas fixas: identificacao a esquerda, Total a direita (sempre em negrito) */
+.grade.caixa tbody td:first-child,.grade.caixa tbody td:last-child,
+.grade.caixa tfoot td:first-child,.grade.caixa tfoot td:last-child{z-index:3}
+.grade.caixa th:last-child,.grade.caixa td:last-child{position:sticky;right:0;font-weight:700;min-width:112px;
+  box-shadow:inset 1px 0 var(--border)}
+
+/* cabecalho do grupo colado abaixo do cabecalho da tabela */
+.grade.caixa tr.group td{position:sticky;top:var(--alt-cabecalho);z-index:4}
+.grade.caixa tr.group td:first-child,.grade.caixa tr.group td:last-child{z-index:5}
+
+/* "Saldo do dia" colado no rodape */
+.grade.caixa tfoot tr.total td{position:sticky;bottom:0;font-weight:700;border-top:2px solid var(--border);z-index:5}
+.grade.caixa tfoot tr.total td:first-child,.grade.caixa tfoot tr.total td:last-child{z-index:6}
+
+/* cabecalho da tabela por cima de tudo */
+.grade.caixa thead th{height:var(--alt-cabecalho);background:#F7F9FB;z-index:7}
+.grade.caixa thead th:first-child,.grade.caixa thead th:last-child{z-index:8}
+
+/* origem do número no indicador (caixa x extrato x PDV) */
+.metric-source{color:var(--muted);font-size:11px;margin-top:4px;display:flex;gap:6px;align-items:center}
+.metric-source:before{content:"";width:6px;height:6px;border-radius:50%;background:#9AA6B2;flex:none}
+.metric-source.alerta{color:#8A5A00}
+.metric-source.alerta:before{background:#E0A100}
+
+/* quatro indicadores (Caixa: saldo atual, entradas, saídas, saldo previsto) */
+.metrics.quatro{grid-template-columns:repeat(4,minmax(0,1fr))}
+.metrics.quatro .metric-value{font-size:30px;letter-spacing:-1px}
+@media(max-width:1199px){
+  .metrics.quatro{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:28px}
+  .metrics.quatro .metric:nth-child(odd){padding-left:0;border-left:0}
+}
+@media(max-width:767px){
+  .metrics.quatro .metric:first-child{grid-column:auto}
+  .metrics.quatro .metric:nth-child(even){padding-left:20px}
+  .metrics.quatro .metric-value{font-size:20px;letter-spacing:-.6px}
+}
+
+/* painel de conciliação: lista de lançamentos que compõem um movimento */
+label.conc-item{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;padding:8px 0;border-bottom:1px solid var(--border);margin:0}
+label.conc-item input{margin-top:3px}
+label.conc-item .num{white-space:nowrap}
+.conc-nome{min-width:0;overflow-wrap:anywhere}

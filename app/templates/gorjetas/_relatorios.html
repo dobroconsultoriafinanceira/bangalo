@@ -1,0 +1,17 @@
+{# Botões de PDF da quinzena — usado na conferência e na quinzena fechada.
+   Espera: periodo, tem_ferias #}
+{% if current_user.pode('relatorios.gerar') %}
+<div class="row" role="group" aria-label="Relatórios em PDF">
+  <a class="btn small" href="{{ url_for('gorjetas.relatorio', periodo_id=periodo.id, tipo='completo') }}" target="_blank" rel="noopener"
+     title="Tabelas gerais, presença por dia, resumo e extras">{{ ui.icon('file-text') }}Gorjeta completa</a>
+  <a class="btn small" href="{{ url_for('gorjetas.relatorio', periodo_id=periodo.id, tipo='resumido') }}" target="_blank" rel="noopener"
+     title="Só as tabelas gerais, sem quem é pago por fora">{{ ui.icon('file') }}Gorjeta</a>
+  {% if tem_ferias %}
+  <a class="btn small" href="{{ url_for('gorjetas.relatorio', periodo_id=periodo.id, tipo='ferias') }}" target="_blank" rel="noopener"
+     title="Acerto de férias entre o time do setor">{{ ui.icon('sun') }}Férias</a>
+  {% else %}
+  <button type="button" class="btn small" disabled aria-describedby="ferias-motivo">{{ ui.icon('sun') }}Férias</button>
+  <span id="ferias-motivo" class="sr-only">Disponível quando alguém estiver marcado de férias na quinzena.</span>
+  {% endif %}
+</div>
+{% endif %}

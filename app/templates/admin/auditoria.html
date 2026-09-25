@@ -1,63 +1,108 @@
 {% extends "base.html" %}
 {% block titulo %}Auditoria{% endblock %}
 {% block conteudo %}
-<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-  <div>
-    <h1 class="text-2xl font-semibold">Log de Auditoria</h1>
-    <p class="text-sm text-gray-500">Trilha de alterações (folha e finanças — LGPD)</p>
-  </div>
-  <nav class="flex gap-2 text-sm">
-    <a href="{{ url_for('admin.usuarios') }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">Usuários</a>
-    <a href="{{ url_for('admin.logs_auditoria') }}" class="px-3 py-1.5 rounded-lg bg-bangalo-500 text-white">Auditoria</a>
-    <a href="{{ url_for('admin.importacao') }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">Importação</a>
-  </nav>
+{% set ativo = 'auditoria' %}
+{% set filtros = {'entidade': entidade, 'acao': acao, 'usuario_id': usuario_id} %}
+{% set n_filtros = filtros.values() | select | list | length %}
+{% set rotulos_acao = {'create': 'Criação', 'update': 'Alteração', 'delete': 'Exclusão', 'login': 'Acesso', 'import': 'Importação',
+  'logout': 'Saída', 'login_falhou': 'Login recusado', 'login_bloqueado': 'Login bloqueado (tentativas)',
+  'acesso_negado': 'Acesso negado', 'senha_alterada': 'Senha alterada', 'senha_pedido': 'Pedido de nova senha',
+  'sessoes_encerradas': 'Sessões encerradas'} %}
+{% call ui.page_header('Auditoria', 'Quem alterou o quê e quando. Trilha obrigatória para dados financeiros e de folha.') %}{% endcall %}
+{% include "admin/_abas.html" %}
+
+<div class="toolbar">
+  <button type="button" class="btn" data-open="dlg-filtros">{{ ui.icon('sliders-horizontal') }}Filtros{% if n_filtros %} · {{ n_filtros }}{% endif %}</button>
+  {% if n_filtros %}<a class="btn ghost" href="{{ url_for('admin.logs_auditoria') }}">Limpar filtros</a>{% endif %}
+  <span class="push caption">{{ paginacao.total }} registro(s){% if paginacao.pages > 1 %} · página {{ paginacao.page }} de {{ paginacao.pages }}{% endif %}</span>
 </div>
 
-<form method="get" class="mb-4 text-sm">
-  <select name="entidade" onchange="this.form.submit()" class="rounded-lg border border-borda px-2 py-1.5 bg-white">
-    <option value="">Todas as entidades</option>
-    {% for e in entidades %}<option {{ 'selected' if e == entidade }}>{{ e }}</option>{% endfor %}
-  </select>
-</form>
-
-<div class="bg-white rounded-2xl border border-borda overflow-x-auto">
-  <table class="min-w-full text-sm">
-    <thead>
-      <tr class="bg-creme border-b border-borda text-left text-xs">
-        <th class="px-4 py-2 font-semibold">Quando</th>
-        <th class="px-4 py-2 font-semibold">Usuário</th>
-        <th class="px-4 py-2 font-semibold">Ação</th>
-        <th class="px-4 py-2 font-semibold">Entidade</th>
-        <th class="px-4 py-2 font-semibold">IP</th>
-        <th class="px-4 py-2 font-semibold">Detalhe</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for log in paginacao.items %}
-      <tr class="border-b border-borda/60 align-top">
-        <td class="px-4 py-2 whitespace-nowrap text-gray-500">{{ log.timestamp | data('%d/%m/%Y %H:%M') }}</td>
-        <td class="px-4 py-2">{{ log.usuario.nome if log.usuario else '—' }}</td>
-        <td class="px-4 py-2"><span class="px-2 py-0.5 rounded text-xs bg-gray-100">{{ log.acao }}</span></td>
-        <td class="px-4 py-2">{{ log.entidade }}{% if log.entidade_id %} #{{ log.entidade_id }}{% endif %}</td>
-        <td class="px-4 py-2 text-gray-400 text-xs">{{ log.ip or '—' }}</td>
-        <td class="px-4 py-2 text-xs text-gray-500 max-w-md">
-          {% if log.dados_depois %}<code class="break-all">{{ log.dados_depois }}</code>{% endif %}
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">Nenhum registro.</td></tr>
+<section class="surface" aria-labelledby="t-aud">
+  <h2 id="t-aud" class="sr-only">Registros de auditoria</h2>
+  {% if paginacao.items %}
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Quando</th><th>Usuário</th><th>Evento</th><th>Registro</th><th class="actions">Ações</th></tr></thead>
+      <tbody>
+        {% for log in paginacao.items %}
+        <tr>
+          <td data-label="Quando" class="nowrap">{{ log.timestamp | data('%d/%m/%Y %H:%M') }}</td>
+          <td data-label="Usuário">{{ log.usuario.nome if log.usuario else 'Sistema' }}</td>
+          <td data-label="Evento">{{ rotulos_acao.get(log.acao, log.acao) }}</td>
+          <td data-label="Registro" class="wrap">{{ log.entidade | replace('_', ' ') }}{% if log.entidade_id %} #{{ log.entidade_id }}{% endif %}</td>
+          <td data-label="Ações" class="actions">
+            {% if log.dados_antes or log.dados_depois %}
+              <button type="button" class="btn small" data-open="log-{{ log.id }}">Ver alteração</button>
+            {% else %}<span class="caption">—</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if paginacao.pages > 1 %}
+  <div class="table-meta">
+    <span>50 por página</span>
+    <nav class="pagination" aria-label="Paginação">
+      {% if paginacao.has_prev %}<a class="btn small" href="{{ url_for('admin.logs_auditoria', pagina=paginacao.prev_num, **filtros) }}" aria-label="Página anterior">‹</a>{% endif %}
+      {% for p in paginacao.iter_pages(left_edge=1, right_edge=1, left_current=1, right_current=2) %}
+        {% if p %}{% if p == paginacao.page %}<span class="btn small current" aria-current="page">{{ p }}</span>{% else %}<a class="btn small" href="{{ url_for('admin.logs_auditoria', pagina=p, **filtros) }}">{{ p }}</a>{% endif %}
+        {% else %}<span class="caption">…</span>{% endif %}
       {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-{% if paginacao.pages > 1 %}
-<div class="flex items-center justify-between mt-4 text-sm">
-  <p class="text-gray-500">Página {{ paginacao.page }} de {{ paginacao.pages }}</p>
-  <div class="flex gap-2">
-    {% if paginacao.has_prev %}<a href="{{ url_for('admin.logs_auditoria', pagina=paginacao.prev_num, entidade=entidade) }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">‹ Anterior</a>{% endif %}
-    {% if paginacao.has_next %}<a href="{{ url_for('admin.logs_auditoria', pagina=paginacao.next_num, entidade=entidade) }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">Próxima ›</a>{% endif %}
+      {% if paginacao.has_next %}<a class="btn small" href="{{ url_for('admin.logs_auditoria', pagina=paginacao.next_num, **filtros) }}" aria-label="Próxima página">›</a>{% endif %}
+    </nav>
   </div>
-</div>
-{% endif %}
+  {% endif %}
+  {% elif n_filtros %}
+    <div class="empty"><div class="empty-icon">{{ ui.icon('search-x') }}</div><h2>Nenhum registro com esses filtros</h2>
+      <p>Os filtros ativos podem estar escondendo registros.</p><a class="btn" href="{{ url_for('admin.logs_auditoria') }}">Limpar filtros</a></div>
+  {% else %}
+    {{ ui.empty('Nenhum registro ainda', 'Cada criação, alteração, exclusão, acesso e importação aparece aqui.', 'history') }}
+  {% endif %}
+</section>
+
+{% for log in paginacao.items if log.dados_antes or log.dados_depois %}
+{% call ui.dialog('log-' ~ log.id, 'Alteração registrada', 'drawer') %}
+  <div class="dialog-body">
+    <dl class="pairs">
+      <div><dt>Quando</dt><dd>{{ log.timestamp | data('%d/%m/%Y %H:%M:%S') }}</dd></div>
+      <div><dt>Usuário</dt><dd>{{ log.usuario.nome if log.usuario else 'Sistema' }}</dd></div>
+      <div><dt>Evento</dt><dd>{{ rotulos_acao.get(log.acao, log.acao) }}</dd></div>
+      <div><dt>Registro</dt><dd>{{ log.entidade }}{% if log.entidade_id %} #{{ log.entidade_id }}{% endif %}</dd></div>
+      <div><dt>IP</dt><dd>{{ log.ip or '—' }}</dd></div>
+    </dl>
+    {% set chaves = ((log.dados_antes or {}).keys() | list + (log.dados_depois or {}).keys() | list) | unique | list %}
+    <div class="table-wrap mt-24">
+      <table class="table">
+        <thead><tr><th>Campo</th><th>Antes</th><th>Depois</th></tr></thead>
+        <tbody>
+          {% for k in chaves %}
+          <tr>
+            <td>{{ k | replace('_', ' ') }}</td>
+            <td class="wrap"><span class="audit-before" style="display:block;padding:6px 8px">{{ (log.dados_antes or {}).get(k, '—') }}</span></td>
+            <td class="wrap"><span class="audit-after" style="display:block;padding:6px 8px">{{ (log.dados_depois or {}).get(k, '—') }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="dialog-actions"><button type="button" class="btn primary" data-close>Fechar</button></div>
+{% endcall %}
+{% endfor %}
+
+{% call ui.dialog('dlg-filtros', 'Filtrar auditoria', 'drawer') %}
+  <form method="get" id="form-filtros" class="dialog-body">
+    {{ ui.field('entidade', 'Registro', entidade or '', 'select', opcoes=[('', 'Todos')] + (entidades | map('string') | list), id='fa-entidade') }}
+    {{ ui.field('acao', 'Evento', acao or '', 'select', opcoes=[('', 'Todos')] + (acoes | list), id='fa-acao') }}
+    <div class="field">
+      <label for="fa-usuario">Usuário</label>
+      <select id="fa-usuario" name="usuario_id"><option value="">Todos</option>{% for u in usuarios %}<option value="{{ u.id }}" {{ 'selected' if usuario_id == u.id }}>{{ u.nome }}</option>{% endfor %}</select>
+    </div>
+  </form>
+  <div class="dialog-actions">
+    <a class="btn" href="{{ url_for('admin.logs_auditoria') }}">Limpar</a>
+    <button type="submit" form="form-filtros" class="btn primary">Aplicar filtros</button>
+  </div>
+{% endcall %}
 {% endblock %}

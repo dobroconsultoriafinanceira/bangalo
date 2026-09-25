@@ -8,8 +8,8 @@ A aba é uma matriz conta(linha) × dia(coluna). Regras confirmadas:
     dias são importados (senão cada mês contaria em dobro).
   - O ano dos cabeçalhos está errado (2023/2024/2026 misturados): usamos
     mês/dia e forçamos 2026. 29/02 não existe em 2026 e é pulado.
-  - Células de TEXTO que parecem número (ex.: "284.87") são ignoradas, como o
-    Excel faz nas somas.
+  - Células de TEXTO que parecem número (ex.: "284.87") CONTAM (são lançamentos
+    reais que o Excel deixa de somar) e são listadas no relatório.
 
 IMPORTANTE: as linhas da aba mudam de posição quando o cliente insere/remove
 contas (é uma planilha viva). Por isso o layout é detectado pelos RÓTULOS das
@@ -18,16 +18,18 @@ seções (col A/B), não por números de linha fixos.
 Idempotente: apaga lançamentos e aplicações do ano-alvo antes de reimportar.
 Emite conferência contra as linhas "Total" diárias da própria planilha.
 """
+import re
 import unicodedata
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
 import openpyxl
-from sqlalchemy import extract
+from sqlalchemy import extract, func
 
 from app.extensions import db
 from app.importers.comum import para_data, para_decimal
+from app.importers.stone_adapter import CATEGORIAS_STONE
 from app.models.fluxo import (
     AplicacaoFinanceira,
     Categoria,
@@ -44,6 +46,19 @@ CHAVE_APLICACAO_ABERTURA = "saldo_aplicacao_abertura"
 SKIP_LABELS = {"subtotal", "total", "receita líquida", "saldo"}
 
 
+
+# O cliente redigita rótulos ("MUSICOS", "Cartão de Crédito 15 Itau"): a linha é
+# casada com a categoria/fornecedor existente ignorando acento, caixa e
+# pontuação. Estes aliases cobrem grafias que nem assim batem.
+_TEXTO_NUMERO = re.compile(r"-?(\d{1,3}(\.\d{3})+|\d+)(,\d{1,2})?|-?\d+\.\d{1,2}")
+
+ALIASES_CATEGORIA = {
+    "visaeletrondebito": "visaelectrondebito",
+    "manutencaoobraseequipam": "manutencaoobrasequip",
+    "falaeexperienciab25": "falaeexperienciab2s",
+}
+
+
 def _pular(label: str) -> bool:
     low = label.strip().lower()
     return not low or any(k in low for k in SKIP_LABELS)
@@ -52,6 +67,16 @@ def _pular(label: str) -> bool:
 def _norm(v) -> str:
     s = str(v or "").strip().lower()
     return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+
+
+# Desde 23/09/2026 as entradas de cartão vêm da API da Stone, não da planilha.
+# A linha continua existindo no arquivo do cliente; o importador apenas a ignora.
+LINHAS_DA_STONE = {re.sub(r"[^a-z0-9]", "", _norm(n)) for n in CATEGORIAS_STONE}
+
+
+def _chave(v) -> str:
+    """Rótulo sem acento, caixa, espaços e pontuação (para casar grafias)."""
+    return re.sub(r"[^a-z0-9]", "", _norm(v))
 
 
 def _mapear_layout(cel, nlinhas: int) -> tuple[dict, list[str]]:
@@ -104,10 +129,23 @@ def importar(caminho: Path) -> list[str]:
             return None
         return linhas[r][col_idx0]
 
+    textos_numericos: list[str] = []
+
     def valor_num(row_idx1: int, col_idx0: int) -> Decimal | None:
-        """Valor só se a célula for numérica (texto é ignorado, como no Excel)."""
+        """Valor numérico da célula. Texto com cara de número (ex.: "284.87")
+        também conta — é lançamento real que o Excel deixa de somar (decisão da
+        cliente em 15/09/2026) — e vai para o relatório para corrigir a planilha."""
         v = cel(row_idx1, col_idx0)
-        return para_decimal(v) if isinstance(v, (int, float)) else None
+        if isinstance(v, (int, float)):
+            return para_decimal(v)
+        if isinstance(v, str) and _TEXTO_NUMERO.fullmatch(v.strip()):
+            valor = para_decimal(v)
+            if valor:
+                textos_numericos.append(
+                    f'{str(cel(row_idx1, 1) or "").strip()} em {col_data.get(col_idx0)}: "{v.strip()}"'
+                )
+            return valor
+        return None
 
     # --- descobre o layout pelos rótulos ---
     m, faltando = _mapear_layout(cel, len(linhas))
@@ -130,9 +168,9 @@ def importar(caminho: Path) -> list[str]:
         (m["saidas"], L_TOT_IMP - 1, "saida", "Impostos", False),
         (m["cv1"], m["sub_salarios"] - 1, "saida", "Folha/Salários", False),
         (m["sub_salarios"] + 1, m["sub_desp_gerais"] - 1, "saida", "Demais Salários", False),
-        (m["sub_desp_gerais"] + 1, m["sub_compras"] - 1, "saida", "Compras (CPV)", True),
+        (m["sub_desp_gerais"] + 1, m["sub_compras"] - 1, "saida", "Compras", True),
         (m["cv2"], m["outros"] - 1, "saida", "Despesas Fixas", False),
-        (m["outros"], m["total_despesas"] - 1, "saida", "Despesas Gerais", False),
+        (m["outros"], m["total_despesas"] - 1, "saida", "Outras despesas", False),
     ]
     aplicacao_rows = {
         m["ap_entrada"]: "entrada",
@@ -166,14 +204,29 @@ def importar(caminho: Path) -> list[str]:
     data_abertura = col_data.get(primeira_col)
     aplic_abertura = para_decimal(cel(L_SALDO_APLIC, primeira_col))
 
-    # idempotência
+    # idempotência — a conciliação bancária aponta para lançamentos que serão
+    # recriados: solta os vínculos antes (SQLite não aplica ON DELETE em cascata)
+    from app.models.banco import ConciliacaoItem, MovimentoBancario
+
+    ids_do_ano = db.select(Lancamento.id).filter(extract("year", Lancamento.data) == ANO_ALVO)
+    movimentos_afetados = db.select(ConciliacaoItem.movimento_id).filter(
+        ConciliacaoItem.lancamento_id.in_(ids_do_ano))
+    db.session.query(MovimentoBancario).filter(MovimentoBancario.id.in_(movimentos_afetados)).update(
+        {"conciliado_em": None, "diferenca_conciliacao": 0}, synchronize_session=False
+    )
+    db.session.query(ConciliacaoItem).filter(
+        ConciliacaoItem.lancamento_id.in_(ids_do_ano)
+    ).delete(synchronize_session=False)
     db.session.query(Lancamento).filter(
-        extract("year", Lancamento.data) == ANO_ALVO
+        extract("year", Lancamento.data) == ANO_ALVO,
+        Lancamento.origem == "manual",   # o que veio da Stone/Itaú fica
     ).delete(synchronize_session=False)
     db.session.query(AplicacaoFinanceira).filter(
         extract("year", AplicacaoFinanceira.data) == ANO_ALVO
     ).delete(synchronize_session=False)
 
+    ultima_cat = db.session.query(func.max(Categoria.id)).scalar() or 0
+    ultimo_forn = db.session.query(func.max(Fornecedor.id)).scalar() or 0
     cache_cat: dict[tuple[str, str], Categoria] = {}
     cache_forn: dict[str, Fornecedor] = {}
     total_entradas = Decimal("0")
@@ -182,15 +235,22 @@ def importar(caminho: Path) -> list[str]:
     n_lanc = 0
 
     def grupo_entrada(label_norm: str) -> str:
-        if label_norm in ("patrocinio", "emprestimos", "resgate", "outros/acerto"):
-            return "Outras Entradas"
-        return "Entradas"
+        """Cada entrada não-cartão virou categoria própria (sem subcategoria)."""
+        proprias = {"patrocinio": "Patrocínio", "emprestimos": "Empréstimo",
+                    "emprestimo": "Empréstimo", "resgate": "Resgate",
+                    "outros/acerto": "Outros/Acertos", "outros/acertos": "Outros/Acertos",
+                    "dinheiro": "Dinheiro", "ifood": "IFOOD", "99 food": "99 FOOD"}
+        return proprias.get(label_norm, "Vendas - Repasse Stone")
 
     # --- lançamentos de fluxo ---
+    pulados_stone: set[str] = set()
     for ini, fim, tipo, grupo, eh_forn in faixas:
         for r in range(ini, fim + 1):
             label = str(cel(r, 1) or "").strip()  # col B
             if _pular(label):
+                continue
+            if ALIASES_CATEGORIA.get(_chave(label), _chave(label)) in LINHAS_DA_STONE:
+                pulados_stone.add(label)   # fonte agora é a API da Stone
                 continue
             g = grupo if grupo is not None else grupo_entrada(_norm(label))
             if eh_forn:
@@ -236,6 +296,13 @@ def importar(caminho: Path) -> list[str]:
 
     db.session.flush()
 
+    # --- refaz a conciliação bancária contra os lançamentos recriados ---
+    from datetime import date
+
+    from app.services import itau_sync
+
+    conciliacao = itau_sync.conciliar_periodo(date(ANO_ALVO, 1, 1), date(ANO_ALVO, 12, 31))
+
     # --- conferência contra as linhas "Total" DIÁRIAS da planilha ---
     def soma_dia(linha):
         return sum((para_decimal(cel(linha, c)) or Decimal("0") for c in col_data), Decimal("0"))
@@ -278,6 +345,23 @@ def importar(caminho: Path) -> list[str]:
         f"Saldo de abertura: R$ {saldo_abertura or 0} em {data_abertura or '—'} "
         f"| aplicação inicial: R$ {aplic_abertura or 0}.",
     ]
+    novas_cats = db.session.execute(
+        db.select(Categoria.grupo, Categoria.nome).filter(Categoria.id > ultima_cat)
+    ).all()
+    novos_forns = db.session.execute(
+        db.select(Fornecedor.nome).filter(Fornecedor.id > ultimo_forn)
+    ).scalars().all()
+    if textos_numericos:
+        relatorio.append(
+            "Valores digitados como TEXTO na planilha (o Excel não soma; o sistema conta — "
+            "corrija a célula na planilha): " + "; ".join(textos_numericos) + "."
+        )
+    if novas_cats:
+        relatorio.append("Categorias novas criadas: " + "; ".join(f"{g} › {n}" for g, n in novas_cats) + ".")
+    if novos_forns:
+        relatorio.append("Fornecedores novos criados: " + "; ".join(novos_forns) + ".")
+    if conciliacao["conciliados"]:
+        relatorio.append(f"Conciliação bancária refeita: {conciliacao['conciliados']} movimentos conciliados.")
     if feb29:
         relatorio.append("29/02 ignorado (inexistente em 2026, sem movimento real na planilha).")
     if meses_inconsistentes:
@@ -290,29 +374,33 @@ def importar(caminho: Path) -> list[str]:
 
 
 def _get_categoria(cache, nome, tipo, grupo) -> Categoria:
-    chave = (nome, grupo)
-    if chave in cache:
-        return cache[chave]
-    cat = db.session.execute(
-        db.select(Categoria).filter_by(nome=nome, grupo=grupo)
-    ).scalar_one_or_none()
+    chave = ALIASES_CATEGORIA.get(_chave(nome), _chave(nome))
+    if (chave, grupo) in cache:
+        return cache[(chave, grupo)]
+    cat = next(
+        (c for c in db.session.execute(db.select(Categoria).filter_by(grupo=grupo)).scalars()
+         if _chave(c.nome) == chave),
+        None,
+    )
     if not cat:
         cat = Categoria(nome=nome, tipo=tipo, grupo=grupo, ordem=0, ativo=True)
         db.session.add(cat)
         db.session.flush()
-    cache[chave] = cat
+    cache[(chave, grupo)] = cat
     return cat
 
 
 def _get_fornecedor(cache, nome) -> Fornecedor:
-    if nome in cache:
-        return cache[nome]
-    forn = db.session.execute(
-        db.select(Fornecedor).filter_by(nome=nome)
-    ).scalar_one_or_none()
+    chave = _chave(nome)
+    if chave in cache:
+        return cache[chave]
+    forn = next(
+        (f for f in db.session.execute(db.select(Fornecedor)).scalars() if _chave(f.nome) == chave),
+        None,
+    )
     if not forn:
         forn = Fornecedor(nome=nome, ativo=True)
         db.session.add(forn)
         db.session.flush()
-    cache[nome] = forn
+    cache[chave] = forn
     return forn

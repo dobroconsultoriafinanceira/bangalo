@@ -1,74 +1,64 @@
 {% extends "base.html" %}
 {% block titulo %}Fornecedores{% endblock %}
 {% block conteudo %}
-<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-  <div>
-    <h1 class="text-2xl font-semibold">Fornecedores</h1>
-    <p class="text-sm text-gray-500">{{ fornecedores | length }} cadastrados</p>
+{% set ativo = 'fornecedores' %}
+{% call ui.page_header('Fornecedores', 'Quem recebe pagamentos do restaurante. O nome é usado nos lançamentos e na revisão do extrato.') %}
+  {% if current_user.pode('cadastros.editar') %}<button type="button" class="btn primary" data-open="dlg-fornecedor" data-reset data-titulo="Novo fornecedor">{{ ui.icon('plus') }}Fornecedor</button>{% endif %}
+{% endcall %}
+{% include "cadastros/_abas.html" %}
+
+<form method="get" class="toolbar" role="search">
+  <label class="sr-only" for="busca">Buscar fornecedor</label>
+  <input id="busca" class="search" type="search" name="q" value="{{ busca }}" placeholder="Buscar fornecedor…">
+  <button type="submit" class="btn">Buscar</button>
+  <span class="push caption">{{ fornecedores | length }} fornecedor(es){% if busca %} com “{{ busca }}”{% endif %}</span>
+</form>
+
+<section class="surface" aria-labelledby="t-forn">
+  <h2 id="t-forn" class="sr-only">Fornecedores</h2>
+  {% if fornecedores %}
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Nome</th><th>Apelido</th><th>Observação</th><th>Situação</th><th class="actions">Ações</th></tr></thead>
+      <tbody>
+        {% for f in fornecedores %}
+        <tr class="{{ 'muted-row' if not f.ativo }}">
+          <td data-label="Nome" class="wrap strong">{{ f.nome }}</td>
+          <td data-label="Apelido" class="wrap">{{ f.apelido or '—' }}</td>
+          <td data-label="Observação" class="wrap">{{ f.observacao or '—' }}</td>
+          <td data-label="Situação">{{ ui.badge('Ativo', 'green') if f.ativo else ui.badge('Inativo') }}</td>
+          <td data-label="Ações" class="actions">
+            {% if current_user.pode('cadastros.editar') %}<button type="button" class="btn small" data-open="dlg-fornecedor" data-titulo="Editar fornecedor"
+                    data-fill-id="{{ f.id }}" data-fill-nome="{{ f.nome }}" data-fill-apelido="{{ f.apelido or '' }}"
+                    data-fill-observacao="{{ f.observacao or '' }}" data-fill-ativo="{{ '1' if f.ativo else '0' }}">Editar</button>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
-  <nav class="flex gap-2 text-sm">
-    <a href="{{ url_for('cadastros.categorias') }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">Plano de contas</a>
-    <a href="{{ url_for('cadastros.fornecedores') }}" class="px-3 py-1.5 rounded-lg bg-bangalo-500 text-white">Fornecedores</a>
-    <a href="{{ url_for('cadastros.equipe') }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">Equipe</a>
-  </nav>
-</div>
+  {% elif busca %}
+    <div class="empty"><div class="empty-icon">{{ ui.icon('search-x') }}</div><h2>Nenhum fornecedor com “{{ busca }}”</h2>
+      <p>A busca olha o nome. Confira a grafia ou limpe a busca.</p><a class="btn" href="{{ url_for('cadastros.fornecedores') }}">Limpar busca</a></div>
+  {% else %}
+    {{ ui.empty('Nenhum fornecedor cadastrado', 'Fornecedores vêm da planilha de fluxo ou são cadastrados aqui e durante a revisão do extrato.', 'truck') }}
+  {% endif %}
+</section>
 
-<div class="flex flex-wrap gap-4 mb-6">
-  <form method="get" class="flex gap-2 text-sm">
-    <input name="q" value="{{ busca }}" placeholder="Buscar fornecedor…" class="rounded-lg border border-borda px-3 py-1.5">
-    <button class="px-3 py-1.5 rounded-lg border border-borda bg-white">Buscar</button>
+{% if current_user.pode('cadastros.editar') %}
+{% call ui.dialog('dlg-fornecedor', 'Novo fornecedor', 'drawer') %}
+  <form method="post" action="{{ url_for('cadastros.salvar_fornecedor') }}" id="form-fornecedor" class="dialog-body" data-busy="Salvando…">
+    {{ ui.csrf() }}<input type="hidden" name="id" value="">
+    <p class="caption">Campos com * são obrigatórios.</p>
+    {{ ui.field('nome', 'Nome ou razão social', '', 'text', True, id='fo-nome', ajuda='Precisa ser único: nomes repetidos são recusados.', attrs='maxlength="160" autocomplete="off"') }}
+    {{ ui.field('apelido', 'Apelido', '', 'text', id='fo-apelido', ajuda='Outros nomes que aparecem no extrato (ex.: MJM/Pagcerto).', attrs='maxlength="160"') }}
+    {{ ui.field('observacao', 'Observações', '', 'textarea', id='fo-obs') }}
+    <label class="check"><input type="checkbox" name="ativo" checked>Fornecedor ativo</label>
   </form>
-  <details class="text-sm">
-    <summary class="px-3 py-1.5 rounded-lg bg-bangalo-500 text-white cursor-pointer list-none inline-block">+ Novo fornecedor</summary>
-    <form method="post" action="{{ url_for('cadastros.salvar_fornecedor') }}"
-          class="mt-2 bg-white rounded-2xl border border-borda p-4 flex flex-wrap gap-2 items-end">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div><label class="block text-xs text-gray-500 mb-1">Nome</label><input name="nome" required class="rounded-lg border border-borda px-2 py-1.5"></div>
-      <div><label class="block text-xs text-gray-500 mb-1">Apelido</label><input name="apelido" class="rounded-lg border border-borda px-2 py-1.5"></div>
-      <div><label class="block text-xs text-gray-500 mb-1">Observação</label><input name="observacao" class="rounded-lg border border-borda px-2 py-1.5"></div>
-      <label class="flex items-center gap-2"><input type="checkbox" name="ativo" checked class="accent-bangalo-500"> Ativo</label>
-      <button class="px-4 py-1.5 rounded-lg bg-bangalo-500 text-white">Salvar</button>
-    </form>
-  </details>
-</div>
-
-<div class="bg-white rounded-2xl border border-borda overflow-x-auto">
-  <table class="min-w-full text-sm">
-    <thead>
-      <tr class="bg-creme border-b border-borda text-left">
-        <th class="px-4 py-2 font-semibold">Nome</th>
-        <th class="px-4 py-2 font-semibold">Apelido</th>
-        <th class="px-4 py-2 font-semibold">Observação</th>
-        <th class="px-4 py-2 font-semibold text-center">Ativo</th>
-        <th class="px-4 py-2"></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for f in fornecedores %}
-      <tr class="border-b border-borda/60">
-        <td class="px-4 py-2 font-medium">{{ f.nome }}</td>
-        <td class="px-4 py-2 text-gray-500">{{ f.apelido or '—' }}</td>
-        <td class="px-4 py-2 text-gray-500">{{ f.observacao or '' }}</td>
-        <td class="px-4 py-2 text-center">{{ '✓' if f.ativo else '—' }}</td>
-        <td class="px-4 py-2 text-right">
-          <details class="inline-block text-left">
-            <summary class="text-bangalo-600 hover:underline text-xs cursor-pointer list-none">Editar</summary>
-            <form method="post" action="{{ url_for('cadastros.salvar_fornecedor') }}" class="mt-2 flex flex-wrap gap-2 items-center">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <input type="hidden" name="id" value="{{ f.id }}">
-              <input name="nome" value="{{ f.nome }}" class="rounded border border-borda px-2 py-1 text-xs">
-              <input name="apelido" value="{{ f.apelido or '' }}" placeholder="apelido" class="rounded border border-borda px-2 py-1 text-xs">
-              <input name="observacao" value="{{ f.observacao or '' }}" placeholder="obs." class="rounded border border-borda px-2 py-1 text-xs">
-              <label class="flex items-center gap-1 text-xs"><input type="checkbox" name="ativo" {{ 'checked' if f.ativo }} class="accent-bangalo-500"> Ativo</label>
-              <button class="px-3 py-1 rounded bg-bangalo-500 text-white text-xs">OK</button>
-            </form>
-          </details>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">Nenhum fornecedor.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-fornecedor" class="btn primary">Salvar</button>
+  </div>
+{% endcall %}
+{% endif %}
 {% endblock %}

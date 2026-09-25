@@ -1,74 +1,68 @@
 {% extends "base.html" %}
-{% block titulo %}Registro Diário{% endblock %}
+{% block titulo %}Registro diário{% endblock %}
 {% block conteudo %}
-<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-  <div>
-    <h1 class="text-2xl font-semibold">Registro Diário de Faturamento</h1>
-    <p class="text-sm text-gray-500">Fonte do “Realizado” das metas · restaurante fecha às segundas</p>
-  </div>
-  <div class="flex items-center gap-2 text-sm">
-    <form method="get" class="flex items-center gap-2">
-      <select name="mes" class="rounded-lg border border-borda px-2 py-1.5 bg-white">
-        {% for m in range(1, 13) %}<option value="{{ m }}" {{ 'selected' if m == mes }}>{{ m | nome_mes }}</option>{% endfor %}
-      </select>
-      <input type="number" name="ano" value="{{ ano }}" class="w-24 rounded-lg border border-borda px-2 py-1.5" aria-label="Ano">
-      <button class="px-3 py-1.5 rounded-lg bg-bangalo-500 text-white">Ver</button>
-    </form>
-    <a href="{{ url_for('metas.painel', ano=ano) }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">‹ Painel</a>
-  </div>
-</div>
+{% set pode_editar = current_user.pode('metas.editar') %}
+{% call ui.page_header('Registro diário', 'Faturamento de cada dia: a origem do realizado das metas. Distingue dia fechado, zero informado e valor ausente.') %}
+  {% if pode_editar %}<button type="submit" form="form-registro" class="btn primary">{{ ui.icon('save') }}Salvar registro</button>{% endif %}
+{% endcall %}
 
-<div class="bg-white rounded-2xl border border-borda p-4 mb-6 grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-  <div><p class="text-xs text-gray-400 uppercase">Meta do mês</p><p class="font-semibold mt-1">{{ linha_meta.meta | brl }}</p></div>
-  <div><p class="text-xs text-gray-400 uppercase">Realizado (mês)</p><p class="font-semibold mt-1">{{ linha_meta.realizado | brl }}</p></div>
-  <div><p class="text-xs text-gray-400 uppercase">% da meta</p>
-    <p class="font-semibold mt-1">{% if linha_meta.pct_meta is not none %}{{ linha_meta.pct_meta | pct }}{% else %}—{% endif %}</p></div>
-</div>
+{{ ui.tabs([
+  (url_for('metas.painel', ano=ano), 'Painel anual', False),
+  (url_for('metas.registro_diario', ano=ano, mes=mes), 'Registro diário', True),
+], 'Seções de metas') }}
 
-<form method="post" action="{{ url_for('metas.salvar_registro_diario') }}">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <input type="hidden" name="ano" value="{{ ano }}">
-  <input type="hidden" name="mes" value="{{ mes }}">
-  <div class="bg-white rounded-2xl border border-borda overflow-x-auto">
-    <table class="min-w-full text-sm">
-      <thead>
-        <tr class="bg-creme border-b border-borda text-left text-xs">
-          <th class="px-4 py-2 font-semibold">Data</th>
-          <th class="px-4 py-2 font-semibold">Dia</th>
-          <th class="px-4 py-2 font-semibold text-center">Aberto?</th>
-          <th class="px-4 py-2 font-semibold num">Faturamento (R$)</th>
-          <th class="px-4 py-2 font-semibold num">Meta do dia</th>
-          <th class="px-4 py-2 font-semibold num">Diferença</th>
-          <th class="px-4 py-2 font-semibold num">% dia</th>
-          <th class="px-4 py-2 font-semibold num">Real. acum.</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for l in linhas %}
-        <tr class="border-b border-borda/60 {{ 'bg-gray-50/60' if not l.aberto }}">
-          <td class="px-4 py-1.5">{{ l.data | data_curta }}</td>
-          <td class="px-4 py-1.5 text-gray-500">{{ l.data | dia_semana }}</td>
-          <td class="px-4 py-1.5 text-center">
-            <input type="checkbox" name="aberto_{{ l.data.isoformat() }}" {{ 'checked' if l.aberto }} class="accent-bangalo-500" aria-label="Aberto em {{ l.data | data }}">
-          </td>
-          <td class="px-4 py-1.5 num">
-            <input name="faturamento_{{ l.data.isoformat() }}" value="{{ l.realizado if l.realizado is not none else '' }}"
-                   inputmode="decimal" placeholder="—"
-                   class="w-28 rounded border border-borda px-2 py-1 text-right {{ 'bg-gray-100' if not l.aberto }}" aria-label="Faturamento de {{ l.data | data }}">
-          </td>
-          <td class="px-4 py-1.5 num text-gray-500">{{ l.meta_dia | brl(false) if l.meta_dia else '' }}</td>
-          <td class="px-4 py-1.5 num {{ 'text-erro' if l.diferenca is not none and l.diferenca < 0 else 'text-ok' if l.diferenca }}">
-            {{ l.diferenca | brl(false) if l.diferenca is not none else '' }}
-          </td>
-          <td class="px-4 py-1.5 num">
-            {% if l.pct is not none %}<span class="{{ 'text-ok' if l.pct >= 1 else 'text-alerta' if l.pct >= 0.9 else 'text-erro' }}">{{ l.pct | pct }}</span>{% endif %}
-          </td>
-          <td class="px-4 py-1.5 num text-gray-400">{{ l.real_acum | brl(false) }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  <div class="mt-4"><button class="px-5 py-2 rounded-lg bg-bangalo-500 text-white text-sm hover:bg-bangalo-600">Salvar registro</button></div>
+<form method="get" class="toolbar" aria-label="Mês">
+  <label class="sr-only" for="rd-mes">Mês</label>
+  <select id="rd-mes" name="mes" style="max-width:180px">{% for m in range(1, 13) %}<option value="{{ m }}" {{ 'selected' if m == mes }}>{{ m | nome_mes }}</option>{% endfor %}</select>
+  <label class="sr-only" for="rd-ano">Ano</label>
+  <input id="rd-ano" type="number" name="ano" value="{{ ano }}" min="2020" max="2100" style="max-width:110px">
+  <button class="btn" type="submit">Ver mês</button>
+</form>
+
+<section class="metrics" aria-label="Mês">
+  {{ ui.metric('Meta do mês', linha_meta.meta | brl if linha_meta.meta is not none else None, (mes | nome_mes) ~ ' ' ~ ano) }}
+  {{ ui.metric('Faturamento', linha_meta.realizado | brl if linha_meta.realizado is not none else None, 'Soma dos dias informados') }}
+  {{ ui.metric('Atingimento', linha_meta.pct_meta | pct(1) if linha_meta.pct_meta is not none else None, 'Faturamento / meta do mês') }}
+</section>
+
+{% if not pode_editar %}{% call ui.notice('warn') %}<p>Somente leitura: o registro diário é ajustado pelo administrador.</p>{% endcall %}{% endif %}
+{% call ui.notice() %}<p>Campo vazio = não informado. Desmarque “Aberto” nos dias em que o restaurante não abriu: dia fechado não é faturamento zero e não conta meta.</p>{% endcall %}
+
+<form method="post" action="{{ url_for('metas.salvar_registro_diario') }}" id="form-registro" data-busy="Salvando…" {{ 'data-somente-leitura' if not pode_editar }}>
+  {{ ui.csrf() }}
+  <input type="hidden" name="ano" value="{{ ano }}"><input type="hidden" name="mes" value="{{ mes }}">
+  <section class="surface" aria-labelledby="t-dias">
+    <h2 id="t-dias" class="sr-only">Dias de {{ mes | nome_mes | lower }}</h2>
+    <div class="table-wrap">
+      <table class="table responsive">
+        <thead>
+          <tr><th>Data</th><th>Funcionamento</th><th class="num">Faturamento (R$)</th><th class="num">Meta do dia</th><th class="num">Diferença</th><th>Situação</th><th class="num">Meta acum.</th><th class="num">Realiz. acum.</th></tr>
+        </thead>
+        <tbody>
+          {% for l in linhas %}
+          {% set id = l.data.isoformat() %}
+          {% if not l.aberto %}{% set sit, tom = 'Fechado', '' %}
+          {% elif l.realizado is not none %}{% set sit, tom = 'Informado', 'green' %}
+          {% else %}{% set sit, tom = 'Pendente', 'amber' %}{% endif %}
+          <tr class="{{ 'muted-row' if not l.aberto }}">
+            <td data-label="Data" class="nowrap">{{ l.data | data('%d/%m') }} <small class="muted" style="display:inline">{{ l.data | dia_semana }}</small></td>
+            <td data-label="Funcionamento"><label class="check mb-0"><input type="checkbox" name="aberto_{{ id }}" {{ 'checked' if l.aberto }}>Aberto</label></td>
+            <td data-label="Faturamento" class="num">
+              <label class="sr-only" for="fat-{{ id }}">Faturamento de {{ l.data | data }}</label>
+              <input id="fat-{{ id }}" name="faturamento_{{ id }}" class="num" inputmode="decimal" placeholder="Não informado"
+                     value="{{ l.realizado | brl(false) if l.realizado is not none else '' }}" autocomplete="off">
+            </td>
+            <td data-label="Meta do dia" class="num muted">{{ l.meta_dia | brl if l.meta_dia else '—' }}</td>
+            <td data-label="Diferença" class="num {{ 'bad' if l.diferenca is not none and l.diferenca < 0 else 'good' if l.diferenca }}">{{ l.diferenca | brl if l.diferenca is not none else '—' }}</td>
+            <td data-label="Situação">{{ ui.badge(sit, tom) }}{% if l.pct is not none %} <small class="muted" style="display:inline">{{ l.pct | pct }}</small>{% endif %}</td>
+            <td data-label="Meta acum." class="num muted">{{ l.meta_acum | brl }}</td>
+            <td data-label="Realiz. acum." class="num muted">{{ l.real_acum | brl }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if pode_editar %}<div class="row mt-24"><button type="submit" class="btn primary">Salvar registro</button></div>{% endif %}
+  </section>
 </form>
 {% endblock %}

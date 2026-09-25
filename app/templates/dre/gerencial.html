@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% import "dre/_macros.html" as dre with context %}
+{% block titulo %}DRE gerencial{% endblock %}
+{% block conteudo %}
+{% set atual = analise.atual %}
+{% set periodo_txt = mes_nome ~ ' ' ~ ano ~ ' · ' ~ ('competência' if regime == 'competencia' else 'caixa') %}
+{% macro variacao(valor, bom_alto=true) -%}
+  {%- if valor is none -%}—
+  {%- else -%}<span class="{{ 'good' if (valor >= 0) == bom_alto else 'bad' }}">{{ valor | brl }}</span>{%- endif -%}
+{%- endmacro %}
+
+{% call dre.cabecalho('gerencial', 'dre.gerencial', {'regime': regime}) %}
+  <nav class="subnav mb-0" aria-label="Regime">
+    <a href="{{ url_for('dre.gerencial', ano=ano, mes=mes, regime='competencia') }}" class="{{ 'active' if regime == 'competencia' }}" {% if regime == 'competencia' %}aria-current="page"{% endif %}>Competência</a>
+    <a href="{{ url_for('dre.gerencial', ano=ano, mes=mes, regime='caixa') }}" class="{{ 'active' if regime == 'caixa' }}" {% if regime == 'caixa' %}aria-current="page"{% endif %}>Caixa puro</a>
+  </nav>
+{% endcall %}
+
+{% call ui.notice() %}
+  <p>Regime {{ 'de competência (imposto, CMV e folha ajustados ao mês)' if regime == 'competencia' else 'de caixa puro' }} · {{ mes_nome }} {{ ano }} ·
+    comparado com {{ mes_ant_nome }} e com a média de {{ analise.janela }} meses. Linhas que variam mais de {{ analise.materialidade | brl }} e 10% contra a média ficam marcadas.</p>
+{% endcall %}
+
+<section class="metrics" aria-label="Resultado do mês">
+  {{ ui.metric('Receita líquida', atual.receita_liquida | brl, 'Bruta ' ~ (atual.receita_bruta | brl)) }}
+  {% set pc = (atual.prime_cost / atual.receita_liquida) if atual.receita_liquida else none %}
+  {{ ui.metric('EBITDA', atual.ebitda | brl,
+      'Margem ' ~ (atual.margem_ebitda | pct(1) if atual.margem_ebitda is not none else '—') ~ ' · Prime Cost ' ~ (pc | pct(1) if pc is not none else '—'),
+      'bad' if atual.ebitda < 0 else '') }}
+  {{ ui.metric('Lucro líquido gerencial', atual.resultado | brl,
+      'Margem ' ~ (atual.margem_liquida | pct(1) if atual.margem_liquida is not none else '—'), 'bad' if atual.resultado < 0 else '') }}
+</section>
+
+<section class="surface" aria-labelledby="t-dre">
+  <div class="section-top">
+    <h2 id="t-dre">Linha a linha</h2>
+    <small>Passe o mouse ou foque o valor para um resumo; clique para a composição completa.</small>
+  </div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Conta</th>
+          <th class="num">{{ mes_nome }} {{ ano }}</th>
+          <th class="num">% RL</th>
+          <th class="num">{{ mes_ant_nome }}</th>
+          <th class="num">Variação</th>
+          <th class="num">Média {{ analise.janela }}m</th>
+          <th class="num">vs média</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in analise.linhas %}
+        <tr class="{{ 'selected' if l.sinalizar }}">
+          <td class="wrap">
+            <span class="{{ 'strong' if l.papel in ('receita', 'custo') }}">{{ l.rotulo }}</span>
+            {% if l.sinalizar %}{{ ui.badge('Explicar variação', 'amber') }}{% endif %}
+          </td>
+          <td class="num">{{ dre.composicao(l.rotulo, l.valor, l.linha.itens, l.linha.origem or '', periodo_txt) }}</td>
+          <td class="num muted">{{ l.pct | pct(1) if l.pct is not none else '—' }}</td>
+          <td class="num muted">{{ l.anterior | brl if l.anterior is not none else '—' }}</td>
+          <td class="num">{{ variacao(l.variacao, l.papel == 'receita') }}</td>
+          <td class="num muted">{{ l.media | brl if l.media is not none else '—' }}</td>
+          <td class="num">{{ variacao(l.desvio, l.papel == 'receita') }}{% if l.desvio_pct is not none %} <small class="muted" style="display:inline">({{ '%.0f' | format(l.desvio_pct * 100) }}%)</small>{% endif %}</td>
+        </tr>
+        {% endfor %}
+        {% for t in analise.totais %}
+        <tr class="total">
+          <td>{{ t.rotulo }}</td>
+          <td class="num {{ 'bad' if t.valor < 0 }}">{{ t.valor | brl }}</td>
+          <td class="num">{{ t.pct | pct(1) if t.pct is not none else '—' }}</td>
+          <td class="num muted">{{ t.anterior | brl if t.anterior is not none else '—' }}</td>
+          <td></td>
+          <td class="num muted">{{ t.media | brl if t.media is not none else '—' }}</td>
+          <td></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% if atual.fora_da_dre %}
+<section class="surface">
+  <details class="expand">
+    <summary>{{ ui.icon('chevron-right') }}Movimentos do mês que ficam fora da DRE ({{ atual.fora_da_dre | length }})</summary>
+    <p class="help">Tesouraria e sócios: aplicações, resgates, empréstimos e adiantamento de lucros não são receita nem despesa.</p>
+    <ul class="details-list">
+      {% for nome, valor in atual.fora_da_dre %}<li><span>{{ nome }}</span><span class="num">{{ valor | brl }}</span></li>{% endfor %}
+    </ul>
+  </details>
+</section>
+{% endif %}
+
+<p class="help mt-24">
+  A receita bruta vem do faturamento diário (PDV); a gorjeta, das quinzenas fechadas; as demais linhas, dos lançamentos do fluxo
+  e do extrato classificado. Onde aparece ⚠ na origem, falta dado para o número ficar confiável.
+  <a href="{{ url_for('dre.contabil', ano=ano, mes=mes) }}">Comparar com a DRE contábil</a>.
+</p>
+
+{{ dre.dialogo_composicao('DRE gerencial') }}
+{% endblock %}

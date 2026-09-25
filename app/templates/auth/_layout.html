@@ -1,0 +1,33 @@
+{% import "_ui.html" as ui %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>{% block titulo %}Entrar{% endblock %} · Bangalô Financeiro</title>
+  <link rel="icon" href="{{ url_for('static', filename='img/favicon.png') }}" type="image/png">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/clareza.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/clareza-app.css') }}">
+</head>
+<body>
+  <main class="auth" id="main-content">
+    <div class="auth-wrap">
+      <div class="auth-brand">
+        <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Bangalô">
+        <p class="caption">Financeiro do restaurante</p>
+      </div>
+      {% with mensagens = get_flashed_messages(with_categories=true) %}
+        {% for categoria, msg in mensagens %}
+          {% set tom = {'success': 'success', 'error': 'error', 'warning': 'warn'}.get(categoria, '') %}
+          <div class="notice {{ tom }}" role="{{ 'alert' if tom == 'error' else 'status' }}"><p>{{ msg }}</p></div>
+        {% endfor %}
+      {% endwith %}
+      {% block conteudo %}{% endblock %}
+      <p class="auth-footer caption">Dobro Consultoria Financeira</p>
+    </div>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+  <script src="{{ url_for('static', filename='js/clareza.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -7,7 +7,7 @@ Consultoria Financeira**.
 
 - **Stack:** Python 3.12 · Flask 3 · SQLAlchemy 2 · PostgreSQL 16 (SQLite em dev)
   · Jinja2 + Tailwind (CDN) + Chart.js · Gunicorn · Docker + Caddy.
-- **Domínio alvo:** `bangalo.dobroconsultoriafinanceira.com.br`
+- **Domínio alvo:** `bangalo.dobroconsultoria.com.br`
 - **Cálculos financeiros:** 100% em `Decimal` / `Numeric(14,2)`. As engines de
   gorjeta e meta são **validadas centavo a centavo contra as planilhas reais**
   (ver `tests/`).
@@ -129,51 +129,77 @@ Integração com o PDV **F-Rest** fica como etapa futura — há um adapter isol
 (`importers/frest_adapter.py`) para importação de CSV/Excel exportado, sem
 acoplar o sistema agora.
 
+## Previsão de saídas (despesas previstas)
+
+O extrato do Itaú **só mostra o que já saiu**: pagamento agendado no internet
+banking não aparece na API (testado em 24/09/2026 — janela futura devolve zero
+lançamentos e não há campo de agendamento). Por isso a projeção de saídas vem de
+`services/despesas_previstas.py` + tela **Caixa › Previstas**:
+
+- a equipe cadastra o que está combinado (fornecedor, valor, data prevista);
+- vira um lançamento `origem='previsto'` na data prevista — é o que aparece no
+  "Saldo previsto" do Caixa;
+- quando o pagamento cai no extrato, `baixar_automatico()` casa os dois (mesmo
+  valor, janela de -5/+10 dias e, se houver fornecedor, o mesmo fornecedor),
+  apaga a previsão e marca a despesa como baixada, avisando na tela;
+- a baixa roda a cada sincronização do Itaú (15 em 15 minutos).
+
 ## Integração Stone (Conciliação)
 
-Importa as **entradas por bandeira** (Visa, Master, ELO, Amex, débitos, PIX)
-direto da conciliação Stone, substituindo o lançamento manual dessas linhas.
+**A Stone é a fonte das entradas de cartão** (decisão da consultoria em
+23/09/2026): Visa Crédito, Master Card Crédito, ELO Crédito, Amex Crédito,
+ELO Débito, Visa Electron Débito e Maestro Débito **não vêm mais da planilha** —
+o importador do fluxo ignora essas linhas (`fluxo_importer.LINHAS_DA_STONE`) e
+elas nascem dos **repasses** da API de Conciliação.
 
-**Arquitetura** (`importers/stone_adapter.py` + `services/stone_import.py`):
-- `TransacaoStone` normaliza a transação (id, data, bandeira, produto, bruto,
-  líquido, taxa, status), independente do layout do arquivo.
-- `to_lancamentos()` é o transform **puro e testado**: mapeia bandeira/produto
-  para a categoria do plano de contas e gera a entrada pelo **valor bruto**.
-- Import **idempotente**: cada lançamento guarda `origem='stone'` +
-  `origem_id` (id da transação). Reimportar o mesmo período **atualiza**, não
-  duplica.
-- Taxa (MDR): opcional. Com `STONE_LANCAR_TAXA=true`, a taxa vira uma saída em
-  "Despesas Bancárias".
+**Contrato da API** (confirmado na doc oficial e contra a conta real em
+23/09/2026 — ver `importers/stone_adapter.py`):
 
-**Como usar no sistema:**
-- Tela **Admin › Importação › Integração Stone**: sincronizar por período
-  (API) ou enviar um CSV de conciliação exportado.
-- CLI:
-  ```bash
-  flask stone-importar 2026-07-01 2026-07-15      # via API (precisa das chaves)
-  flask stone-importar-csv conciliacao_julho.csv  # via arquivo exportado
-  ```
+```
+GET https://conciliation.stone.com.br/v2/merchant/{stoneCode}/conciliation-file/{AAAAMMDD}?layout=XML2_2
+Authorization: Basic <chave>:      # a chave é o usuário, senha vazia
+x-user-type: client
+```
 
-**Passo a passo para habilitar a conta da cliente:**
-1. **Solicitar as credenciais à Stone.** A cliente (ou a consultoria, com
-   procuração) pede no [Dev Center Stone](https://www.stone.com.br/devcenter) /
-   Portal de Conciliação a habilitação da **API de Conciliação**, atrelando o(s)
-   **Stone Code(s)** da loja às credenciais (`ClientApplicationKey` +
-   `SecretKey`). Se a loja já usa um conciliador terceiro, pedir à Stone a
-   associação do Stone Code.
-2. **Preencher o `.env`** com `STONE_BASE_URL`, `STONE_CLIENT_APPLICATION_KEY`,
-   `STONE_SECRET_KEY` e `STONE_CODES` (os Stone Codes, separados por vírgula).
-3. **Confirmar o layout com um arquivo real.** Baixar um arquivo de conciliação
-   de exemplo (Layout 2.2/2.4) e ajustar `COLUNAS`/`baixar_dia` no
-   `stone_adapter.py` aos nomes/endpoint reais (a camada de rede e o parser são
-   os únicos pontos que dependem do arquivo real; o transform e a importação já
-   estão prontos e testados).
-4. **Decidir bruto × taxa** com a consultoria: manter só a entrada bruta
-   (padrão) ou também lançar a taxa como saída (`STONE_LANCAR_TAXA=true`).
-5. **Rodar** por um período de teste e conferir contra o extrato Stone.
+- A chave é gerada pelo titular no portal Stone (Perfil › Chaves de
+  autenticação › **API de conciliação Stone**), por Stone Code. O lojista **não
+  precisa** de `ClientApplicationKey` — isso é do fluxo de conciliadora parceira.
+- O arquivo de um dia só fica pronto **depois das 5h do dia seguinte**.
+- Resposta em XML (layout 2.2). O parser lê dois containers:
+  - `FinancialTransactions` → vendas capturadas (bruto, líquido, MDR por parcela);
+  - `Payments` → **repasses do dia** por `WalletTypeId`, que é o que cai no banco
+    e o que vira lançamento de entrada (`WALLET_TYPE` mapeia para o plano de contas).
 
-> A Stone cobre a parte de **cartão/PIX Stone**. Dinheiro, iFood, 99Food e PIX
-> fora da Stone continuam vindo de outra fonte (F-Rest/manual).
+**No sistema** (Administração › Integrações › Stone):
+- **Importar repasses** do período: cria/atualiza as entradas de cartão
+  (idempotente por `origem='stone'`, `origem_id='pg:<id do pagamento>'`) e
+  remove nesse intervalo as linhas de cartão que tenham vindo da planilha.
+- **Só conferir**: compara Stone × fluxo dia a dia, sem gravar — foi assim que
+  apareceram Visa/Master trocados na planilha em 17 e 18/09 e um Amex não lançado.
+
+**Agenda de recebíveis**: cada venda traz a data prevista de pagamento da
+parcela. `importar_agenda()` soma as parcelas ainda não liquidadas e grava a
+previsão no caixa (origem `stone_agenda`, categoria "Recebíveis de cartão
+(previsto)"), substituindo a previsão de cartão que vinha da planilha. Confere
+com a tela "Recebimentos" do app da Stone.
+
+**PIX da Stone**: o arquivo de conciliação NÃO traz PIX. O extrato mostra a
+diferença: quando a Stone paga por bandeira ("STONE VISA CD ...") o crédito casa
+com o arquivo; quando paga consolidado ("PIX TRANSF BANGALO") vem cartão + PIX
+juntos, e a sobra é lançada como `Pagamento em PIX` (R$ 287 mil em 2026). O
+arquivo oficial de PIX tem endpoint e chave próprios e ainda não está integrado.
+
+**Automático**: com `STONE_SYNC_ENABLED=true`, o agendador busca todo dia às
+`STONE_SYNC_HORA` (padrão 6h) os repasses dos últimos dias e reescreve a agenda.
+
+**Configuração** (`.env`, fora do git):
+
+```
+STONE_BASE_URL=https://conciliation.stone.com.br
+STONE_SECRET_KEY=sk_...        # chave da API de conciliação
+STONE_CODES=181345124          # Stone Code da loja
+STONE_LAYOUT=XML2_2
+```
 
 ## Sincronização automática com o Google Sheets (fluxo)
 
@@ -213,39 +239,113 @@ layout pelos rótulos (imune a inserção de linhas na planilha).
 > em paralelo. A conta de serviço tem acesso **somente leitura** — o sistema
 > nunca edita nem apaga a planilha.
 
-## Integração Itaú PJ (scaffold)
+## Integração Itaú PJ (API de Extrato Conta Corrente)
 
-Estrutura pronta para consumir a **API direta do Itaú** (saldo, extrato,
-cartões e investimentos) e **conciliar** com o fluxo. A lógica reutilizável já
-está pronta e testada; só a camada de rede/certificados pluga quando as
-credenciais existirem.
+Consome a **API de Extrato Conta Corrente** do Itaú (`account-statement v1`),
+contratada via Implantação Cash, e **concilia** com o fluxo.
 
-- `importers/itau_adapter.py`: `ItauConfig` (env), `ItauClient` (OAuth2
-  client_credentials + mTLS, com erro explícito enquanto não há credenciais) e
-  **normalizadores puros** (`normalizar_extrato`, `normalizar_saldo`,
-  `normalizar_cartao`) que convertem o JSON do Itaú nas estruturas
-  `TransacaoBancaria` / `SaldoConta` / `LancamentoCartao` /
-  `PosicaoInvestimento`.
+- `importers/itau_adapter.py`: `ItauConfig` (env), `ItauClient` (certificado
+  dinâmico, access token OAuth2 client_credentials + mTLS, extrato) e funções
+  **puras**: `normalizar_conta`, `gerar_chave_e_csr`,
+  `separar_resposta_certificado`, `normalizar_extrato`.
 - `services/conciliacao_bancaria.py`: motor **puro** que casa transações do
   banco com lançamentos do fluxo por tipo + valor + data (janela de
   tolerância), separando *conciliado / só no banco / só no fluxo*.
-- CLI: `flask itau-sincronizar 2026-07-01 2026-07-15` (informa se faltam
-  credenciais).
 
-**Passo a passo para habilitar (com o gerente Itaú):**
-1. **Acessar o portal** [developer.itau.com.br](https://developer.itau.com.br) e,
-   com apoio do gerente PJ, solicitar acesso às APIs desejadas (extrato/saldo,
-   cartões, investimentos). O consumo dos dados da própria conta exige
-   **consentimento** do titular (LGPD).
-2. **Gerar as credenciais e o certificado**: `client_id` + `client_secret` e o
-   **certificado mTLS** da aplicação (certificado + chave privada).
-3. **Instalar os certificados** na VPS (fora do repositório) e preencher o
-   `.env`: `ITAU_BASE_URL`, `ITAU_CLIENT_ID`, `ITAU_CLIENT_SECRET`,
-   `ITAU_CERT_PATH`, `ITAU_KEY_PATH`, `ITAU_SCOPES`, `ITAU_CONTAS`.
-4. **Confirmar os endpoints e o formato** com a documentação do portal e um
-   retorno real: ajustar as URLs em `ItauClient` e o mapeamento de campos nos
-   `normalizar_*` (único ponto que depende do payload real).
-5. **Rodar** um período de teste e conferir a conciliação contra o extrato.
+| Etapa | Endpoint (produção) | Autenticação |
+|---|---|---|
+| Certificado | `POST https://sts.itau.com.br/seguranca/v1/certificado/solicitacao` (CSR em texto) | Bearer token temporário (5 min) |
+| Token | `POST https://sts.itau.com.br/api/oauth/token` | mTLS (.crt + .key) |
+| Extrato | `GET https://account-statement.api.itau.com/account-statement/v1/statements/{agência}00{conta}{DAC}?type=current_account&start_date=AAAA-MM-DD&page=1&page_size=1000` | Bearer + mTLS |
+
+Contrato do extrato (confirmado com a conta real em 2026-09-15):
+- `type=current_account` e `start_date` são **obrigatórios**. `end_date` não é
+  estrito, então o sistema busca desde `start_date` e filtra o período pela
+  **data contábil**.
+- **Paginação não confiável**: `total_pages`/`total_elements` mudam entre
+  chamadas idênticas e páginas de 100 se sobrepõem e **perdem lançamentos**.
+  O cliente usa `page_size=1000` (o período vem numa página só e estável) e,
+  se houver mais, pagina até página vazia/HTTP 422, deduplicando pelo `id`.
+- Resposta: `data[].events[]` (lançamentos, mais recentes primeiro: `id`,
+  `operation` C/D, `reversal`, `date.accounting`, `amount.value` com sinal,
+  `literal.complete`, `origin`, `counterpart`) e `data[].balances[]`
+  (`saldo_disponivel`, `saldo_bloqueado`, `saldo_aplic_aut`).
+- Lotes **SISPAG** (ex.: salários) vêm como `type=agrupamento`, **sem `id`**,
+  com `code` estável (`2026-09-12SALARIOS`) — usado como id (`agr:<code>`).
+
+Homologação: `sts.rdhi.com.br` e `account-statement.api.hom.itau.com`
+(`ITAU_AMBIENTE=homologacao`).
+
+**Passo a passo:**
+1. **Credenciais** (administrador do Devportal): em
+   [devportal.itau.com.br/baas/#/credentials](https://devportal.itau.com.br/baas/#/credentials)
+   gerar a credencial. Guardar o **client secret** (aparece uma única vez) e
+   colocar `ITAU_CLIENT_ID` / `ITAU_CLIENT_SECRET` no `.env`.
+2. **Certificado dinâmico**: gerar o **token temporário** no Devportal e, em
+   até 5 minutos, rodar:
+   ```bash
+   flask itau-certificado --ou bangalo --cidade "Sao Paulo" --uf SP
+   ```
+   O comando gera chave + CSR (CN = client_id, RSA 2048, SHA-512), envia ao
+   Itaú e grava `itau.key`, `itau.csr` e `itau.crt` em `instance/itau/` (fora
+   do git). Se a resposta trouxer client secret, ele fica em
+   `client_secret.txt`: passe para o `.env` e apague o arquivo. O certificado
+   vale **1 ano**; para renovar, repita com `--forcar`.
+3. **Enviar o ClientId ao Itaú** (Implantação Cash). Credenciais e escopos são
+   liberados em até **2 dias úteis**, sem confirmação.
+4. **Contas**: `ITAU_CONTAS=1234-12345-6` (agência-conta-DAC; do mesmo CNPJ
+   da credencial).
+5. **Primeira chamada**:
+   ```bash
+   flask itau-testar
+   ```
+   Obtém o token, chama a 1ª página do extrato (padrão: últimos 7 dias,
+   `--desde AAAA-MM-DD` para mudar), mostra saldo e totais e grava o JSON
+   bruto em `instance/itau/respostas/` (fora do git — contém dados reais).
+   Para um período completo: `flask itau-sincronizar 2026-09-01 2026-09-15`.
+6. **Produção (VPS)**: copiar `instance/itau/` para a VPS (montado no
+   container pelo `docker-compose.yml`) e renovar antes de 1 ano.
+
+**Classificação gerencial — visão CFO** (`services/classificacao_bancaria.py`):
+cada movimento do extrato cai em um grupo, separando o resultado do
+restaurante do que só movimenta dinheiro:
+
+| Grupo | Exemplos |
+|---|---|
+| Operação do restaurante | repasse Stone (vendas no cartão), iFood/99, eventos, PIX de clientes; fornecedores, folha, FGTS, tributos, utilidades, fatura do cartão, músicos, serviços, tarifas |
+| Sócios e financiamentos | retiradas/lucro, "sócios – a detalhar", empréstimos pagos ou recebidos |
+| Tesouraria | aplicação/resgate automático, CDB, rendimentos |
+| Transferências entre contas próprias | mesmo CNPJ (`EMPRESA_CNPJ_RAIZ`), exceto o repasse da Stone |
+
+- Prioridade: classificação manual > regras do usuário
+  (`regra_classificacao_bancaria`: documento, nome ou descrição) > regras
+  padrão > "a classificar" (marcado para revisão).
+- Na tela, "alterar" reclassifica um movimento; marcando "sempre para …" cria
+  a regra e reaplica em todos os movimentos não manuais.
+- A conciliação com o fluxo ignora tesouraria e transferências.
+- O Itaú mostra o **recebido**, não o **vendido**: o repasse da Stone vem
+  líquido de taxas e com prazo. Faturamento real vem da Stone/PDV.
+
+**Gravação e conciliação** (`models/banco.py` + `services/itau_sync.py`):
+- O extrato é gravado em `movimento_bancario` (idempotente por banco + conta +
+  id do Itaú) e o saldo em `saldo_bancario` a cada sincronização. Ele **não**
+  vira `Lancamento`: o fluxo vem da planilha, e gravar o extrato como
+  lançamento contaria o mesmo dinheiro duas vezes.
+- Após gravar, o motor casa cada movimento pendente com um lançamento livre do
+  fluxo (mesmo tipo, mesmo valor, até 3 dias de diferença) e guarda o par em
+  `movimento_bancario.lancamento_id`. Se o banco alterar data/valor de um
+  movimento, ele volta a ficar pendente.
+- Tela **Conciliação Itaú** (menu lateral): saldo, totais do extrato no
+  período, movimentos conciliados/pendentes (com "desfazer") e lançamentos do
+  fluxo sem par. Sincronizar é só para o perfil consultoria.
+- Dashboard: card **Saldo Itaú** com o último saldo e linhas "Recebido/Pago no
+  Itaú (operação)" nos cards de Entradas e Saídas — só a operação, sem sócios,
+  aplicações nem transferências (os totais principais seguem do fluxo).
+- CLI: `flask itau-sincronizar 2026-09-01` (fim opcional).
+- Automático: `ITAU_SYNC_ENABLED=true` busca os últimos `ITAU_SYNC_DIAS` dias a
+  cada `ITAU_SYNC_INTERVAL_MIN` minutos (rodar o agendador em um só processo).
+
+Erros da API: [devportal › account statement](https://devportal.itau.com.br/nossas-apis/itau-vw9-api-account-statement-v1-externo).
 
 > Alternativa mais rápida (se o acesso direto demorar): um **agregador de Open
 > Finance** (Pluggy/Belvo/TecnoSpeed) entrega saldo/extrato/cartão/investimento
@@ -264,32 +364,68 @@ derivados, e permissões por perfil.
 
 ## Deploy na VPS (Docker + Caddy)
 
+A VPS (Hostinger, `root@<ip>`) já hospeda o stack do sistema interno da
+consultoria em `/root/dobro`, cujo **Caddy é dono das portas 80/443** e serve
+`dobroconsultoria.com.br` (site) e `dashboard.dobroconsultoria.com.br`
+(sistema interno). O Bangalô entra ao lado, em `/root/bangalo`, **sem subir
+Caddy próprio**: o container `bangalo_web` participa da rede do Caddy do Dobro
+e recebe o tráfego por reverse proxy.
+
+### Primeira instalação
+
 ```bash
-git pull
-docker compose build web
-docker compose run --rm web flask db upgrade        # migrations ANTES de subir
-docker compose up -d
-docker compose run --rm web flask seed              # 1ª vez apenas
+# 1. DNS: registro A `bangalo` -> IP da VPS (antes de tudo; ver seção DNS)
+
+# 2. chave de deploy da VPS -> cadastre a pública como Deploy key no GitHub
+ssh-keygen -t ed25519 -C "vps-bangalo" -f ~/.ssh/bangalo_deploy -N ""
+cat ~/.ssh/bangalo_deploy.pub
+printf 'Host github.com\n  IdentityFile ~/.ssh/bangalo_deploy\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+
+# 3. clone + .env de produção
+git clone git@github.com:dobroconsultoriafinanceira/bangalo.git /root/bangalo
+cd /root/bangalo
+cp .env.example .env && nano .env      # SECRET_KEY, POSTGRES_PASSWORD, SMTP, ADMIN_*
+mkdir -p instance/itau instance/arquivos
+
+# 4. sobe (o entrypoint roda `flask db upgrade` e `flask seed` sozinho)
+make up && make logs
+
+# 5. publica o domínio: copie o bloco do Caddyfile deste repo para
+#    /root/dobro/Caddyfile e recarregue
+make caddy-reload
+
+# 6. deploy automático a cada git pull
+make setup
 ```
 
-`docker-compose.yml` tem 3 serviços: `web` (Gunicorn, 3 workers), `db`
-(postgres:16-alpine com volume persistente) e `caddy` (só no profile
-`com-caddy`). Healthcheck em `/healthz`.
+### Dia a dia
 
-**Coexistência com o `dashboard.` já existente (cenário A, recomendado):** a VPS
-já roda um Caddy central. Não suba o `caddy` daqui — em vez disso:
-1. crie uma rede docker compartilhada: `docker network create proxy`;
-2. conecte o Caddy central a essa rede;
-3. copie o bloco do `Caddyfile` deste repo para o Caddyfile central e
-   `docker exec <caddy> caddy reload`.
+`git pull` — o hook `post-merge` detecta o que mudou e refaz o build do `web`
+com cache. Equivalente manual: `make deploy`. Outros alvos: `make logs`,
+`make ps`, `make restart`, `make backup`, `make db-shell`, `make build-clean`.
 
-**Cenário B (VPS sem Caddy):** `docker compose --profile com-caddy up -d`.
+### Estrutura do stack
+
+`docker-compose.yml` tem `web` (Gunicorn na 8000, entrypoint aplica migrations
+e seed no start), `db` (postgres:16-alpine com volume `bangalo_pgdata`) e
+`caddy` (só no profile `com-caddy`, para uma VPS sem Caddy central).
+Healthcheck da app em `/healthz`. `GUNICORN_WORKERS` padrão 2 (VPS de 1 vCPU).
+
+> **Nome da rede externa:** o compose espera `dobro_frontend`, que é como o
+> Compose nomeia a rede `frontend` do projeto em `/root/dobro`. Confirme com
+> `docker network ls` antes do primeiro `up` e ajuste se divergir.
+
+> **Agendador:** com mais de um worker, cada processo sobe seu próprio
+> APScheduler. Os jobs são idempotentes e têm guarda de intervalo, mas se for
+> ligar `SCHEDULER_ENABLED`/`*_SYNC_ENABLED` em produção, prefira 1 worker ou
+> um serviço `worker` dedicado.
 
 ## DNS / subdomínio
 
-Antes do primeiro deploy, crie no DNS um registro **A** (ou CNAME) para
-`bangalo.dobroconsultoriafinanceira.com.br` apontando para o IP da VPS. Sem isso
-a emissão automática do certificado TLS (Let's Encrypt) falha.
+Antes do primeiro deploy, crie no DNS um registro **A** para
+`bangalo.dobroconsultoria.com.br` apontando para o IP da VPS. Sem isso a
+emissão automática do certificado TLS (Let's Encrypt) falha e o Caddy fica
+tentando em loop.
 
 ## Backup e restauração
 

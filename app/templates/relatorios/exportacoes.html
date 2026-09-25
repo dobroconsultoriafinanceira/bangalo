@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block titulo %}Exportações{% endblock %}
+{% block conteudo %}
+{% call ui.page_header('Histórico de exportações', 'Relatórios gerados: abrir de novo, baixar ou gerar novamente com os mesmos parâmetros.') %}
+  <a class="btn primary" href="{{ url_for('relatorios.index') }}">{{ ui.icon('plus') }}Novo relatório</a>
+{% endcall %}
+
+<section class="surface" aria-labelledby="t-exp">
+  <h2 id="t-exp" class="sr-only">Exportações</h2>
+  {% if itens %}
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Relatório</th><th>Gerado em</th><th>Por</th><th>Situação</th><th class="actions">Ações</th></tr></thead>
+      <tbody>
+        {% for e in itens %}
+        <tr>
+          <td data-label="Relatório" class="wrap strong">{{ e.titulo }}{% if e.erro %}<small class="bad">{{ e.erro }}</small>{% elif e.tamanho %}<small>{{ (e.tamanho / 1024) | round(0) | int }} KB</small>{% endif %}</td>
+          <td data-label="Gerado em" class="nowrap">{{ e.gerado_em | data('%d/%m/%Y %H:%M') }}</td>
+          <td data-label="Por">{{ e.gerado_por.nome if e.gerado_por else '—' }}</td>
+          <td data-label="Situação">{{ ui.badge('Pronto', 'green') if e.status == 'gerado' else ui.badge('Falhou', 'red') }}</td>
+          <td data-label="Ações" class="actions">
+            {% if e.status == 'gerado' %}
+              <a class="btn small" href="{{ url_for('relatorios.arquivo', exp_id=e.id) }}" target="_blank" rel="noopener">Abrir</a>
+              <a class="btn ghost small" href="{{ url_for('relatorios.arquivo', exp_id=e.id, baixar=1) }}">Baixar</a>
+            {% endif %}
+            <form method="post" action="{{ url_for('relatorios.refazer', exp_id=e.id) }}" data-busy="Gerando…">
+              {{ ui.csrf() }}<button type="submit" class="btn {{ 'ghost' if e.status == 'gerado' else '' }} small">{{ 'Gerar novamente' if e.status == 'gerado' else 'Tentar novamente' }}</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="table-meta"><span>Últimas {{ itens | length }} exportações. “Gerar novamente” usa os dados atuais do sistema.</span></div>
+  {% else %}
+    {% call ui.empty('Nenhuma exportação ainda', 'Os PDFs gerados na Central de Relatórios ficam guardados aqui.', 'file-text') %}
+      <a class="btn primary" href="{{ url_for('relatorios.index') }}">Gerar relatório</a>
+    {% endcall %}
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,81 @@
+{% import "_ui.html" as ui %}
+{# Cabeçalho comum das DREs gerenciais: título, abas e navegação de mês.
+   Importar com contexto: {% import "dre/_macros.html" as dre with context %} #}
+{% macro cabecalho(aba, rota_mes, extra_args={}) -%}
+{% call ui.page_header('DRE gerencial', 'Resultado do restaurante com regime, corte e base de comparação explícitos.') %}
+  {% if current_user.pode('relatorios.gerar') %}
+    <a class="btn primary" href="{{ url_for('relatorios.index', tipo='dre_gerencial', ano=ano, mes=mes) }}">{{ ui.icon('download') }}Exportar</a>
+  {% endif %}
+{% endcall %}
+
+{{ ui.tabs([
+  (url_for('dre.gerencial', ano=ano, mes=mes), 'Modelo gerencial', aba == 'gerencial'),
+  (url_for('dre.index', ano=ano, mes=mes), 'Realizado × previsto', aba == 'previsto'),
+], 'Visões da DRE') }}
+
+<div class="toolbar" aria-label="Mês de referência">
+  <a class="icon-btn" href="{{ url_for(rota_mes, ano=ano_ant, mes=mes_ant, **extra_args) }}" aria-label="Mês anterior">{{ ui.icon('chevron-left') }}</a>
+  <strong class="nowrap" style="min-width:140px;text-align:center">{{ mes_nome }} {{ ano }}</strong>
+  <a class="icon-btn" href="{{ url_for(rota_mes, ano=ano_prox, mes=mes_prox, **extra_args) }}" aria-label="Próximo mês">{{ ui.icon('chevron-right') }}</a>
+  {% if caller %}<span class="push row">{{ caller() }}</span>{% endif %}
+</div>
+{%- endmacro %}
+
+{# Botão "Ver composição" + resumo por hover/foco (até 4 itens). itens = [(nome, valor)] #}
+{% macro composicao(rotulo, valor, itens, origem='', periodo='', valor_texto=None) -%}
+  <span class="hover-wrap">
+    <button type="button" class="composition-link" data-composicao
+            data-rotulo="{{ rotulo }}" data-valor="{{ valor | brl }}" data-origem="{{ origem }}" data-periodo="{{ periodo }}"
+            data-itens='{{ itens | tojson }}' aria-label="Ver composição de {{ rotulo }}">{{ valor_texto or (valor | brl) }}</button>
+    {% if itens %}
+    <span class="tooltip" role="tooltip">
+      <strong>{{ rotulo }}</strong>
+      {% for nome, v in itens[:4] %}<p><span>{{ nome }}</span><b class="num">{{ v | brl }}</b></p>{% endfor %}
+      {% if itens | length > 4 %}<p class="muted">+ {{ itens | length - 4 }} item(ns)</p>{% endif %}
+      <span class="caption">Clique no valor para ver a composição completa.</span>
+    </span>
+    {% endif %}
+  </span>
+{%- endmacro %}
+
+{% macro dialogo_composicao(contexto) -%}
+{% call ui.dialog('dlg-composicao', 'Composição completa da conta', 'drawer') %}
+  <div class="dialog-body">
+    <p class="caption">{{ contexto }} · <span data-slot="periodo"></span></p>
+    <p class="strong mb-0" data-slot="rotulo"></p>
+    <div class="metric-value" data-slot="valor"></div>
+    <p class="help" data-slot="origem"></p>
+    <div class="table-wrap">
+      <table class="table"><thead><tr><th>Componente</th><th class="num">Valor</th></tr></thead><tbody id="comp-itens"></tbody></table>
+    </div>
+    <p class="muted" id="comp-vazio" hidden>Sem lançamentos nesta linha no período.</p>
+  </div>
+  <div class="dialog-actions">
+    <button type="button" class="btn primary" data-close>Voltar ao DRE</button>
+  </div>
+{% endcall %}
+<script>
+document.addEventListener('click', function (ev) {
+  const b = ev.target.closest('[data-composicao]');
+  if (!b) return;
+  const dlg = document.getElementById('dlg-composicao');
+  const fmt = v => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }).replace('-R$', '-R$');
+  ['rotulo', 'valor', 'origem', 'periodo'].forEach(k => dlg.querySelector('[data-slot="' + k + '"]').textContent = b.dataset[k] || '');
+  const itens = JSON.parse(b.dataset.itens || '[]');
+  const corpo = document.getElementById('comp-itens');
+  corpo.replaceChildren();
+  itens.forEach(([nome, valor]) => {
+    const tr = document.createElement('tr');
+    const a = document.createElement('td'); a.textContent = nome;
+    const c = document.createElement('td'); c.className = 'num'; c.textContent = fmt(valor);
+    tr.append(a, c); corpo.append(tr);
+  });
+  document.getElementById('comp-vazio').hidden = itens.length > 0;
+  corpo.closest('.table-wrap').hidden = itens.length === 0;
+  dlg._acionador = b;
+  dlg.showModal();
+  dlg.querySelector('.dialog-head h2').setAttribute('tabindex', '-1');
+  dlg.querySelector('.dialog-head h2').focus();
+});
+</script>
+{%- endmacro %}

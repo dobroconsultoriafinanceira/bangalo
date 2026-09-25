@@ -1,0 +1,12 @@
+{# Subnavegação de Cadastros. Espera: ativo ('colaboradores'|'funcoes'|'setores'|'fornecedores'|'categorias') #}
+<nav class="subnav" aria-label="Cadastros">
+  {% for chave, rotulo, url in [
+    ('colaboradores', 'Colaboradores', url_for('cadastros.equipe')),
+    ('funcoes', 'Funções', url_for('cadastros.equipe', aba='funcoes')),
+    ('setores', 'Setores', url_for('cadastros.equipe', aba='setores')),
+    ('fornecedores', 'Fornecedores', url_for('cadastros.fornecedores')),
+    ('categorias', 'Plano de contas', url_for('cadastros.categorias')),
+  ] %}
+    <a href="{{ url }}" class="{{ 'active' if ativo == chave }}" {% if ativo == chave %}aria-current="page"{% endif %}>{{ rotulo }}</a>
+  {% endfor %}
+</nav>

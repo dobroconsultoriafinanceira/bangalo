@@ -1,115 +1,38 @@
 {% extends "base.html" %}
 {% block titulo %}Importação{% endblock %}
 {% block conteudo %}
-<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-  <div>
-    <h1 class="text-2xl font-semibold">Importação de planilhas</h1>
-    <p class="text-sm text-gray-500">Carga inicial (one-shot). Idempotente: rodar de novo não duplica.</p>
-  </div>
-  <nav class="flex gap-2 text-sm">
-    <a href="{{ url_for('admin.usuarios') }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">Usuários</a>
-    <a href="{{ url_for('admin.logs_auditoria') }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">Auditoria</a>
-    <a href="{{ url_for('admin.importacao') }}" class="px-3 py-1.5 rounded-lg bg-bangalo-500 text-white">Importação</a>
-  </nav>
-</div>
+{% set ativo = 'importacao' %}
+{% call ui.page_header('Importação de planilhas', 'Carga das planilhas originais. Rodar de novo não duplica: a planilha substitui o que já foi importado.') %}{% endcall %}
+{% include "admin/_abas.html" %}
 
-<div class="bg-white rounded-2xl border border-borda p-6 max-w-2xl">
-  <form method="post" enctype="multipart/form-data" class="space-y-4">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div>
-      <label class="block text-sm font-medium mb-1" for="tipo">Tipo de planilha</label>
-      <select id="tipo" name="tipo" required class="w-full rounded-lg border border-borda px-3 py-2 text-sm bg-white">
-        <option value="metas">Metas de Faturamento (histórico + registro diário)</option>
-        <option value="fluxo">Fluxo de Caixa (aba 2026)</option>
-        <option value="gorjetas">Calculadora de Gorjetas (histórico + quinzenas)</option>
-      </select>
-    </div>
-    <div>
-      <label class="block text-sm font-medium mb-1" for="arquivo">Arquivo (.xlsx ou .csv, até 20 MB)</label>
-      <input id="arquivo" type="file" name="arquivo" accept=".xlsx,.csv" required
-             class="w-full text-sm border border-borda rounded-lg px-3 py-2">
-    </div>
-    <button class="px-5 py-2 rounded-lg bg-bangalo-500 text-white text-sm hover:bg-bangalo-600">Importar</button>
-  </form>
-  <div class="mt-6 text-xs text-gray-500 space-y-1 border-t border-borda pt-4">
-    <p><strong>Ordem sugerida:</strong> 1) Cadastros já semeados → 2) Metas → 3) Fluxo de Caixa → 4) Gorjetas.</p>
-    <p>Cada importação emite um relatório de conferência (totais importados × totais da planilha).</p>
-    <p>Integração com o PDV F-Rest fica como etapa futura (adapter isolado, sem carga automática agora).</p>
-  </div>
-</div>
+<div class="grid-two">
+  <section class="surface" aria-labelledby="t-imp">
+    <h2 id="t-imp">Enviar planilha</h2>
+    <form method="post" enctype="multipart/form-data" data-busy="Importando…">
+      {{ ui.csrf() }}
+      {{ ui.field('tipo', 'Tipo de planilha', 'metas', 'select', True, opcoes=[
+          ('metas', 'Metas de faturamento (histórico + registro diário)'),
+          ('fluxo', 'Fluxo de caixa (aba do ano)'),
+          ('gorjetas', 'Calculadora de gorjetas (quinzenas)')], id='imp-tipo') }}
+      <div class="dropzone">
+        {{ ui.icon('file-spreadsheet') }}
+        <label for="imp-arquivo" class="strong" style="display:block">Arquivo .xlsx ou .csv, até 20 MB <span class="required" aria-hidden="true">*</span></label>
+        <input id="imp-arquivo" type="file" name="arquivo" accept=".xlsx,.csv" required>
+      </div>
+      <button type="submit" class="btn primary">Importar</button>
+    </form>
+    <p class="help mt-16">O resultado de cada importação aparece no topo da página (totais importados × planilha). O razão da contabilidade (.xls) é importado em Fechamento.</p>
+  </section>
 
-<!-- Sincronização Google Sheets (fluxo) -->
-<div class="bg-white rounded-2xl border border-borda p-6 max-w-2xl mt-6">
-  <div class="flex items-center gap-2 mb-1">
-    <h2 class="text-lg font-semibold">Sincronização automática (Google Sheets)</h2>
-    {% if google_configurado %}
-      <span class="px-2 py-0.5 rounded-full text-xs bg-green-50 text-ok border border-green-200">conectada</span>
-    {% else %}
-      <span class="px-2 py-0.5 rounded-full text-xs bg-amber-50 text-alerta border border-amber-200">não configurada</span>
-    {% endif %}
-    {% if google_ativo %}
-      <span class="px-2 py-0.5 rounded-full text-xs bg-bangalo-50 text-bangalo-700">auto a cada {{ google_intervalo }} min</span>
-    {% endif %}
-  </div>
-  <p class="text-xs text-gray-500 mb-4">
-    Puxa a planilha de fluxo do Google (só leitura) e atualiza os lançamentos de 2026.
-    Última sincronização:
-    <strong>{{ google_ultima_sync | data('%d/%m/%Y %H:%M') if google_ultima_sync else 'nunca' }}</strong>.
-  </p>
-  <form method="post" action="{{ url_for('admin.google_sincronizar') }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <button class="px-4 py-1.5 rounded-lg bg-bangalo-500 text-white text-sm hover:bg-bangalo-600 {{ '' if google_configurado else 'opacity-60' }}">
-      Sincronizar agora
-    </button>
-    {% if not google_configurado %}
-      <span class="text-xs text-alerta ml-2">configure a conta de serviço (ver README)</span>
-    {% endif %}
-  </form>
-</div>
-
-<!-- Integração Stone -->
-<div class="bg-white rounded-2xl border border-borda p-6 max-w-2xl mt-6">
-  <div class="flex items-center gap-2 mb-1">
-    <h2 class="text-lg font-semibold">Integração Stone (Conciliação)</h2>
-    {% if stone_configurada %}
-      <span class="px-2 py-0.5 rounded-full text-xs bg-green-50 text-ok border border-green-200">credenciais ativas</span>
-    {% else %}
-      <span class="px-2 py-0.5 rounded-full text-xs bg-amber-50 text-alerta border border-amber-200">sem credenciais</span>
-    {% endif %}
-  </div>
-  <p class="text-xs text-gray-500 mb-4">
-    Importa as entradas por bandeira (Visa, Master, ELO, Amex, débitos, PIX) direto da conciliação Stone.
-    Idempotente: reimportar o mesmo período atualiza, não duplica.
-  </p>
-
-  <!-- Sincronizar por período (API) -->
-  <form method="post" action="{{ url_for('admin.stone_sincronizar') }}" class="flex flex-wrap items-end gap-3 text-sm mb-5">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div>
-      <label class="block text-xs text-gray-500 mb-1">Início</label>
-      <input type="date" name="inicio" required class="rounded-lg border border-borda px-2 py-1.5">
-    </div>
-    <div>
-      <label class="block text-xs text-gray-500 mb-1">Fim</label>
-      <input type="date" name="fim" required class="rounded-lg border border-borda px-2 py-1.5">
-    </div>
-    <button class="px-4 py-1.5 rounded-lg bg-bangalo-500 text-white {{ '' if stone_configurada else 'opacity-60' }}">
-      Sincronizar pela API
-    </button>
-    {% if not stone_configurada %}
-      <span class="text-xs text-alerta">configure as chaves STONE_* no .env</span>
-    {% endif %}
-  </form>
-
-  <!-- Upload de CSV exportado -->
-  <form method="post" action="{{ url_for('admin.stone_csv') }}" enctype="multipart/form-data"
-        class="flex flex-wrap items-end gap-3 text-sm border-t border-borda pt-4">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div>
-      <label class="block text-xs text-gray-500 mb-1">Ou envie o CSV de conciliação exportado</label>
-      <input type="file" name="arquivo" accept=".csv" required class="text-sm border border-borda rounded-lg px-3 py-2">
-    </div>
-    <button class="px-4 py-1.5 rounded-lg border border-bangalo-500 text-bangalo-600 hover:bg-bangalo-50">Importar CSV</button>
-  </form>
+  <aside class="surface" aria-labelledby="t-ordem">
+    <h2 id="t-ordem">Ordem sugerida</h2>
+    <ol class="details-list" style="list-style:none">
+      <li><span>1. Cadastros iniciais</span><span class="muted">já semeados</span></li>
+      <li><span>2. Metas</span><span class="muted">histórico e registro diário</span></li>
+      <li><span>3. Fluxo de caixa</span><span class="muted">lançamentos do ano</span></li>
+      <li><span>4. Gorjetas</span><span class="muted">quinzenas</span></li>
+    </ol>
+    <p class="help mt-16">Sincronizações automáticas (Itaú, Google, Stone) ficam em <a href="{{ url_for('admin.integracoes') }}">Integrações</a>.</p>
+  </aside>
 </div>
 {% endblock %}

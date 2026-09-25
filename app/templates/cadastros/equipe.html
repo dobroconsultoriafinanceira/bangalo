@@ -1,137 +1,177 @@
 {% extends "base.html" %}
-{% block titulo %}Equipe{% endblock %}
+{% block titulo %}{{ {'colaboradores': 'Colaboradores', 'funcoes': 'Funções', 'setores': 'Setores e rateio'}[aba] }}{% endblock %}
 {% block conteudo %}
-<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-  <div>
-    <h1 class="text-2xl font-semibold">Equipe</h1>
-    <p class="text-sm text-gray-500">Setores, funções e colaboradores das gorjetas</p>
-  </div>
-  <nav class="flex gap-2 text-sm">
-    <a href="{{ url_for('cadastros.categorias') }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">Plano de contas</a>
-    <a href="{{ url_for('cadastros.fornecedores') }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">Fornecedores</a>
-    <a href="{{ url_for('cadastros.equipe') }}" class="px-3 py-1.5 rounded-lg bg-bangalo-500 text-white">Equipe</a>
-  </nav>
-</div>
+{% set ativo = aba %}
+{% set cab = {
+  'colaboradores': ('Colaboradores', 'Pessoas com função, vínculo e pontos das gorjetas.', 'Colaborador', 'dlg-colaborador'),
+  'funcoes': ('Funções', 'Funções de cada setor e os pontos padrão do rateio.', 'Função', 'dlg-funcao'),
+  'setores': ('Setores e rateio', 'Percentual de cada setor na gorjeta; a soma precisa dar 100%.', 'Setor', 'dlg-setor')}[aba] %}
 
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-  <!-- Setores -->
-  <div class="bg-white rounded-2xl border border-borda p-5">
-    <h2 class="text-sm font-semibold mb-3">Setores
-      <span class="ml-2 text-xs {{ 'text-ok' if soma_percentuais == 1 else 'text-erro' }}">(soma {{ soma_percentuais | pct(2) }})</span>
-    </h2>
-    <table class="w-full text-sm mb-3">
-      {% for s in setores %}
-      <tr class="border-b border-borda/60">
-        <td class="py-1.5">{{ s.nome }}</td>
-        <td class="py-1.5 num">{{ s.percentual_rateio | pct(2) }}</td>
-        <td class="py-1.5 text-right">
-          <details class="inline-block text-left">
-            <summary class="text-bangalo-600 text-xs cursor-pointer list-none">editar</summary>
-            <form method="post" action="{{ url_for('cadastros.salvar_setor') }}" class="mt-1 flex gap-1 items-center">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <input type="hidden" name="id" value="{{ s.id }}">
-              <input name="nome" value="{{ s.nome }}" class="rounded border border-borda px-2 py-1 text-xs w-24">
-              <input name="percentual_rateio" value="{{ s.percentual_rateio }}" class="rounded border border-borda px-2 py-1 text-xs w-16">
-              <label class="text-xs flex items-center gap-1"><input type="checkbox" name="ativo" {{ 'checked' if s.ativo }} class="accent-bangalo-500">at.</label>
-              <button class="px-2 py-1 rounded bg-bangalo-500 text-white text-xs">OK</button>
-            </form>
-          </details>
-        </td>
-      </tr>
-      {% endfor %}
-    </table>
-    <form method="post" action="{{ url_for('cadastros.salvar_setor') }}" class="flex gap-2 items-end text-xs">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input name="nome" placeholder="Novo setor" required class="rounded border border-borda px-2 py-1.5">
-      <input name="percentual_rateio" placeholder="% (0.25)" class="rounded border border-borda px-2 py-1.5 w-24">
-      <input type="hidden" name="ativo" value="on">
-      <button class="px-3 py-1.5 rounded bg-bangalo-500 text-white">+ Setor</button>
-    </form>
-  </div>
+{% call ui.page_header(cab[0], cab[1]) %}
+  {% if current_user.pode('cadastros.editar') %}<button type="button" class="btn primary" data-open="{{ cab[3] }}" data-reset
+          data-titulo="{{ {'colaboradores': 'Novo colaborador', 'funcoes': 'Nova função', 'setores': 'Novo setor'}[aba] }}">{{ ui.icon('plus') }}{{ cab[2] }}</button>{% endif %}
+{% endcall %}
+{% include "cadastros/_abas.html" %}
 
-  <!-- Funções -->
-  <div class="bg-white rounded-2xl border border-borda p-5">
-    <h2 class="text-sm font-semibold mb-3">Funções e pontos</h2>
-    <table class="w-full text-sm mb-3">
-      {% for fn in funcoes %}
-      <tr class="border-b border-borda/60">
-        <td class="py-1.5">{{ fn.nome }}</td>
-        <td class="py-1.5 text-gray-400 text-xs">{{ fn.setor.nome }}</td>
-        <td class="py-1.5 num">{{ fn.pontos_padrao }} pts</td>
-      </tr>
-      {% endfor %}
-    </table>
-    <form method="post" action="{{ url_for('cadastros.salvar_funcao') }}" class="flex flex-wrap gap-2 items-end text-xs">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input name="nome" placeholder="Nova função" required class="rounded border border-borda px-2 py-1.5">
-      <select name="setor_id" class="rounded border border-borda px-2 py-1.5 bg-white">
-        {% for s in setores %}<option value="{{ s.id }}">{{ s.nome }}</option>{% endfor %}
-      </select>
-      <input name="pontos_padrao" placeholder="pontos" class="rounded border border-borda px-2 py-1.5 w-20">
-      <button class="px-3 py-1.5 rounded bg-bangalo-500 text-white">+ Função</button>
-    </form>
-  </div>
-</div>
-
-<!-- Colaboradores -->
-<div class="bg-white rounded-2xl border border-borda p-5 mt-6">
-  <h2 class="text-sm font-semibold mb-3">Colaboradores</h2>
-  <div class="overflow-x-auto">
-    <table class="min-w-full text-sm">
-      <thead>
-        <tr class="bg-creme border-b border-borda text-left text-xs">
-          <th class="px-3 py-2 font-semibold">Nome</th>
-          <th class="px-3 py-2 font-semibold">Setor · Função</th>
-          <th class="px-3 py-2 font-semibold num">Pontos</th>
-          <th class="px-3 py-2 font-semibold">Registro</th>
-          <th class="px-3 py-2 font-semibold text-center">Ativo</th>
-          <th class="px-3 py-2"></th>
-        </tr>
-      </thead>
+{% if aba == 'colaboradores' %}
+<form method="get" class="toolbar" role="search">
+  <label class="sr-only" for="busca">Buscar colaborador</label>
+  <input id="busca" class="search" type="search" name="q" value="{{ busca }}" placeholder="Buscar colaborador…">
+  <span class="push caption">{{ colaboradores | selectattr('ativo') | list | length }} ativo(s) · {{ colaboradores | rejectattr('ativo') | list | length }} inativo(s)</span>
+</form>
+<section class="surface" aria-labelledby="t-colab">
+  <h2 id="t-colab" class="sr-only">Colaboradores</h2>
+  {% if colaboradores %}
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Nome</th><th>Função</th><th>Setor</th><th>Vínculo</th><th class="num">Pontos</th><th>Situação</th><th class="actions">Ações</th></tr></thead>
       <tbody>
         {% for c in colaboradores %}
-        <tr class="border-b border-borda/60">
-          <td class="px-3 py-1.5 font-medium">{{ c.nome }}</td>
-          <td class="px-3 py-1.5 text-gray-500">{{ c.setor.nome }} · {{ c.funcao.nome }}</td>
-          <td class="px-3 py-1.5 num">{{ c.pontos }}</td>
-          <td class="px-3 py-1.5 text-gray-500">{{ c.registro }}</td>
-          <td class="px-3 py-1.5 text-center">{{ '✓' if c.ativo else '—' }}</td>
-          <td class="px-3 py-1.5 text-right">
-            <details class="inline-block text-left">
-              <summary class="text-bangalo-600 text-xs cursor-pointer list-none">editar</summary>
-              <form method="post" action="{{ url_for('cadastros.salvar_colaborador') }}" class="mt-1 flex flex-wrap gap-1 items-center">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="hidden" name="id" value="{{ c.id }}">
-                <input name="nome" value="{{ c.nome }}" class="rounded border border-borda px-2 py-1 text-xs">
-                <select name="funcao_id" class="rounded border border-borda px-1 py-1 text-xs bg-white">
-                  {% for fn in funcoes %}<option value="{{ fn.id }}" {{ 'selected' if fn.id == c.funcao_id }}>{{ fn.setor.nome }}·{{ fn.nome }}</option>{% endfor %}
-                </select>
-                <input name="pontos" value="{{ c.pontos }}" class="rounded border border-borda px-2 py-1 text-xs w-14">
-                <select name="registro" class="rounded border border-borda px-1 py-1 text-xs bg-white">
-                  {% for r in registros %}<option {{ 'selected' if r == c.registro }}>{{ r }}</option>{% endfor %}
-                </select>
-                <label class="text-xs flex items-center gap-1"><input type="checkbox" name="ativo" {{ 'checked' if c.ativo }} class="accent-bangalo-500">at.</label>
-                <button class="px-2 py-1 rounded bg-bangalo-500 text-white text-xs">OK</button>
-              </form>
-            </details>
+        <tr class="{{ 'muted-row' if not c.ativo }}">
+          <td data-label="Nome" class="wrap strong">{{ c.nome }}</td>
+          <td data-label="Função">{{ c.funcao.nome }}</td>
+          <td data-label="Setor">{{ c.setor.nome }}</td>
+          <td data-label="Vínculo">{{ c.registro }}</td>
+          <td data-label="Pontos" class="num">{{ c.pontos | string | replace('.', ',') }}</td>
+          <td data-label="Situação">{{ ui.badge('Ativo', 'green') if c.ativo else ui.badge('Inativo') }}</td>
+          <td data-label="Ações" class="actions">
+            {% if current_user.pode('cadastros.editar') %}<button type="button" class="btn small" data-open="dlg-colaborador" data-titulo="Editar colaborador"
+                    data-fill-id="{{ c.id }}" data-fill-nome="{{ c.nome }}" data-fill-funcao-id="{{ c.funcao_id }}"
+                    data-fill-registro="{{ c.registro }}" data-fill-pontos="{{ c.pontos | string | replace('.', ',') }}"
+                    data-fill-observacao="{{ c.observacao or '' }}" data-fill-ativo="{{ '1' if c.ativo else '0' }}">Editar</button>{% endif %}
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  <form method="post" action="{{ url_for('cadastros.salvar_colaborador') }}" class="mt-3 flex flex-wrap gap-2 items-end text-xs">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input name="nome" placeholder="Novo colaborador" required class="rounded border border-borda px-2 py-1.5">
-    <select name="funcao_id" class="rounded border border-borda px-2 py-1.5 bg-white">
-      {% for fn in funcoes %}<option value="{{ fn.id }}">{{ fn.setor.nome }} · {{ fn.nome }}</option>{% endfor %}
-    </select>
-    <input name="pontos" placeholder="pontos (opcional)" class="rounded border border-borda px-2 py-1.5 w-32">
-    <select name="registro" class="rounded border border-borda px-2 py-1.5 bg-white">
-      {% for r in registros %}<option>{{ r }}</option>{% endfor %}
-    </select>
-    <input type="hidden" name="ativo" value="on">
-    <button class="px-3 py-1.5 rounded bg-bangalo-500 text-white">+ Colaborador</button>
+  <div class="table-meta"><span>{{ colaboradores | length }} colaborador(es){% if busca %} com “{{ busca }}”{% endif %}. Inativos continuam no histórico das quinzenas.</span></div>
+  {% elif busca %}
+    <div class="empty"><div class="empty-icon">{{ ui.icon('search-x') }}</div><h2>Nenhum colaborador com “{{ busca }}”</h2>
+      <p>Confira a grafia ou limpe a busca.</p><a class="btn" href="{{ url_for('cadastros.equipe') }}">Limpar busca</a></div>
+  {% else %}
+    {{ ui.empty('Nenhum colaborador cadastrado', 'Cadastre a equipe para lançar presenças e ratear a gorjeta.', 'users') }}
+  {% endif %}
+</section>
+
+{% elif aba == 'funcoes' %}
+<section class="surface" aria-labelledby="t-func">
+  <h2 id="t-func" class="sr-only">Funções</h2>
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Função</th><th>Setor</th><th class="num">Pontos padrão</th><th class="num">Colaboradores</th><th class="actions">Ações</th></tr></thead>
+      <tbody>
+        {% for fn in funcoes | sort(attribute='setor.nome') %}
+        <tr>
+          <td data-label="Função" class="strong">{{ fn.nome }}</td>
+          <td data-label="Setor">{{ fn.setor.nome }}</td>
+          <td data-label="Pontos" class="num">{{ fn.pontos_padrao | string | replace('.', ',') }}</td>
+          <td data-label="Colaboradores" class="num">{{ fn.colaboradores | selectattr('ativo') | list | length }}</td>
+          <td data-label="Ações" class="actions">
+            {% if current_user.pode('cadastros.editar') %}<button type="button" class="btn small" data-open="dlg-funcao" data-titulo="Editar função"
+                    data-fill-id="{{ fn.id }}" data-fill-nome="{{ fn.nome }}" data-fill-setor-id="{{ fn.setor_id }}"
+                    data-fill-pontos-padrao="{{ fn.pontos_padrao | string | replace('.', ',') }}">Editar</button>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="help mt-16">Os pontos da função são o padrão para novos colaboradores. Cada quinzena guarda os pontos que valiam na época.</p>
+</section>
+
+{% else %}
+{% set ok = soma_percentuais == 1 %}
+{% call ui.notice('success' if ok else 'warn') %}
+  <p>Percentuais do rateio (setores ativos): {{ soma_percentuais | pct(2) }}.
+    {{ 'Alterações afetam o cálculo das quinzenas abertas.' if ok else 'A soma precisa dar 100% para o rateio fechar.' }}</p>
+{% endcall %}
+<section class="surface" aria-labelledby="t-set">
+  <h2 id="t-set" class="sr-only">Setores</h2>
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Setor</th><th class="num">Rateio</th><th>Situação</th><th class="actions">Ações</th></tr></thead>
+      <tbody>
+        {% for s in setores %}
+        <tr class="{{ 'muted-row' if not s.ativo }}">
+          <td data-label="Setor" class="strong">{{ s.nome }}</td>
+          <td data-label="Rateio" class="num">{{ s.percentual_rateio | pct(2) }}</td>
+          <td data-label="Situação">{{ ui.badge('Ativo', 'green') if s.ativo else ui.badge('Inativo') }}</td>
+          <td data-label="Ações" class="actions">
+            {% if current_user.pode('cadastros.editar') %}<button type="button" class="btn small" data-open="dlg-setor" data-titulo="Editar setor"
+                    data-fill-id="{{ s.id }}" data-fill-nome="{{ s.nome }}"
+                    data-fill-percentual-rateio="{{ ('%g' | format((s.percentual_rateio * 100) | float)) | replace('.', ',') }}"
+                    data-fill-ativo="{{ '1' if s.ativo else '0' }}">Editar</button>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{# ═════════════════════ Painéis de cadastro ═════════════════════ #}
+{% if current_user.pode('cadastros.editar') %}
+{% call ui.dialog('dlg-colaborador', 'Novo colaborador', 'drawer') %}
+  <form method="post" action="{{ url_for('cadastros.salvar_colaborador') }}" id="form-colaborador" class="dialog-body" data-busy="Salvando…">
+    {{ ui.csrf() }}<input type="hidden" name="id" value="">
+    <p class="caption">Campos com * são obrigatórios.</p>
+    {{ ui.field('nome', 'Nome completo', '', 'text', True, id='co-nome', attrs='maxlength="120" autocomplete="off"') }}
+    <div class="field">
+      <label for="co-funcao">Função <span class="required" aria-hidden="true">*</span></label>
+      <select id="co-funcao" name="funcao_id" required>
+        <option value="">Selecione…</option>
+        {% for grupo, itens in funcoes | groupby('setor.nome') %}
+          <optgroup label="{{ grupo }}">{% for fn in itens %}<option value="{{ fn.id }}">{{ fn.nome }} ({{ fn.pontos_padrao | string | replace('.', ',') }} pts)</option>{% endfor %}</optgroup>
+        {% endfor %}
+      </select>
+    </div>
+    {{ ui.field('registro', 'Vínculo', 'CLT', 'select', True, opcoes=registros | list, id='co-registro') }}
+    {{ ui.field('pontos', 'Pontos', '', 'text', id='co-pontos', ajuda='Vazio = pontos padrão da função.', attrs='inputmode="decimal"') }}
+    {{ ui.field('observacao', 'Observações', '', 'textarea', id='co-obs') }}
+    <label class="check"><input type="checkbox" name="ativo" checked>Colaborador ativo</label>
+    <p class="help">O setor vem da função.</p>
   </form>
-</div>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-colaborador" class="btn primary">Salvar</button>
+  </div>
+{% endcall %}
+{% endif %}
+
+{% if current_user.pode('cadastros.editar') %}
+{% call ui.dialog('dlg-funcao', 'Nova função', 'drawer') %}
+  <form method="post" action="{{ url_for('cadastros.salvar_funcao') }}" id="form-funcao" class="dialog-body" data-busy="Salvando…">
+    {{ ui.csrf() }}<input type="hidden" name="id" value="">
+    <p class="caption">Campos com * são obrigatórios.</p>
+    {{ ui.field('nome', 'Nome da função', '', 'text', True, id='fu-nome', attrs='maxlength="60" autocomplete="off"') }}
+    <div class="field">
+      <label for="fu-setor">Setor <span class="required" aria-hidden="true">*</span></label>
+      <select id="fu-setor" name="setor_id" required>{% for s in setores %}<option value="{{ s.id }}">{{ s.nome }}</option>{% endfor %}</select>
+    </div>
+    {{ ui.field('pontos_padrao', 'Pontos padrão', '1', 'text', True, id='fu-pontos', attrs='inputmode="decimal"') }}
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-funcao" class="btn primary">Salvar</button>
+  </div>
+{% endcall %}
+{% endif %}
+
+{% if current_user.pode('cadastros.editar') %}
+{% call ui.dialog('dlg-setor', 'Novo setor', 'drawer') %}
+  <form method="post" action="{{ url_for('cadastros.salvar_setor') }}" id="form-setor" class="dialog-body" data-busy="Salvando…">
+    {{ ui.csrf() }}<input type="hidden" name="id" value="">
+    <p class="caption">Campos com * são obrigatórios.</p>
+    {{ ui.field('nome', 'Nome do setor', '', 'text', True, id='se-nome', attrs='maxlength="60" autocomplete="off"') }}
+    {{ ui.field('percentual_rateio', 'Percentual do rateio (%)', '', 'text', True, id='se-pct', ajuda='Ex.: 25 para 25%. A soma dos setores ativos precisa dar 100%.', attrs='inputmode="decimal"') }}
+    <label class="check"><input type="checkbox" name="ativo" checked>Setor ativo</label>
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-setor" class="btn primary">Salvar</button>
+  </div>
+{% endcall %}
+{% endif %}
 {% endblock %}

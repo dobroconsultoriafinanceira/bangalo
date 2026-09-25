@@ -1,78 +1,131 @@
 {% extends "base.html" %}
 {% block titulo %}Usuários{% endblock %}
 {% block conteudo %}
-<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-  <div>
-    <h1 class="text-2xl font-semibold">Usuários</h1>
-    <p class="text-sm text-gray-500">Acesso restrito à consultoria</p>
-  </div>
-  <nav class="flex gap-2 text-sm">
-    <a href="{{ url_for('admin.usuarios') }}" class="px-3 py-1.5 rounded-lg bg-bangalo-500 text-white">Usuários</a>
-    <a href="{{ url_for('admin.logs_auditoria') }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">Auditoria</a>
-    <a href="{{ url_for('admin.importacao') }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white">Importação</a>
-  </nav>
-</div>
+{% set ativo = 'usuarios' %}
+{% call ui.page_header('Usuários e permissões', 'Quem acessa o sistema, com qual papel e o que cada pessoa pode fazer.') %}
+  <button type="button" class="btn primary" data-open="dlg-usuario" data-reset data-titulo="Novo usuário"
+          data-usuario-novo>{{ ui.icon('plus') }}Usuário</button>
+{% endcall %}
+{% include "admin/_abas.html" %}
 
-<details class="bg-white rounded-2xl border border-borda mb-6">
-  <summary class="px-5 py-3 cursor-pointer text-sm font-medium text-bangalo-700">+ Novo usuário</summary>
-  <form method="post" action="{{ url_for('admin.salvar_usuario') }}"
-        class="px-5 pb-5 grid grid-cols-2 lg:grid-cols-5 gap-3 text-sm items-end">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div><label class="block text-xs text-gray-500 mb-1">Nome</label><input name="nome" required class="w-full rounded-lg border border-borda px-2 py-1.5"></div>
-    <div><label class="block text-xs text-gray-500 mb-1">E-mail</label><input type="email" name="email" required class="w-full rounded-lg border border-borda px-2 py-1.5"></div>
-    <div><label class="block text-xs text-gray-500 mb-1">Perfil</label>
-      <select name="role" class="w-full rounded-lg border border-borda px-2 py-1.5 bg-white">
-        {% for r in roles %}<option value="{{ r }}">{{ 'Consultoria (admin)' if r == 'consultoria' else 'Gerência' }}</option>{% endfor %}
-      </select>
-    </div>
-    <div><label class="block text-xs text-gray-500 mb-1">Senha (mín. 8)</label><input type="password" name="senha" minlength="8" class="w-full rounded-lg border border-borda px-2 py-1.5"></div>
-    <div class="flex gap-2 items-center">
-      <label class="flex items-center gap-2"><input type="checkbox" name="ativo" checked class="accent-bangalo-500"> Ativo</label>
-      <button class="px-4 py-1.5 rounded-lg bg-bangalo-500 text-white ml-auto">Salvar</button>
-    </div>
-  </form>
-</details>
-
-<div class="bg-white rounded-2xl border border-borda overflow-x-auto">
-  <table class="min-w-full text-sm">
-    <thead>
-      <tr class="bg-creme border-b border-borda text-left">
-        <th class="px-4 py-2 font-semibold">Nome</th>
-        <th class="px-4 py-2 font-semibold">E-mail</th>
-        <th class="px-4 py-2 font-semibold">Perfil</th>
-        <th class="px-4 py-2 font-semibold text-center">Ativo</th>
-        <th class="px-4 py-2 font-semibold">Último login</th>
-        <th class="px-4 py-2"></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for u in usuarios %}
-      <tr class="border-b border-borda/60">
-        <td class="px-4 py-2 font-medium">{{ u.nome }}</td>
-        <td class="px-4 py-2 text-gray-500">{{ u.email }}</td>
-        <td class="px-4 py-2"><span class="px-2 py-0.5 rounded-full text-xs {{ 'bg-bangalo-50 text-bangalo-700' if u.role == 'consultoria' else 'bg-gray-100 text-gray-600' }}">{{ u.role }}</span></td>
-        <td class="px-4 py-2 text-center">{{ '✓' if u.ativo else '—' }}</td>
-        <td class="px-4 py-2 text-gray-400 text-xs">{{ u.ultimo_login | data('%d/%m/%Y %H:%M') if u.ultimo_login else 'nunca' }}</td>
-        <td class="px-4 py-2 text-right">
-          <details class="inline-block text-left">
-            <summary class="text-bangalo-600 text-xs cursor-pointer list-none">editar</summary>
-            <form method="post" action="{{ url_for('admin.salvar_usuario') }}" class="mt-2 flex flex-wrap gap-1 items-center">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <input type="hidden" name="id" value="{{ u.id }}">
-              <input name="nome" value="{{ u.nome }}" class="rounded border border-borda px-2 py-1 text-xs">
-              <input name="email" value="{{ u.email }}" class="rounded border border-borda px-2 py-1 text-xs">
-              <select name="role" class="rounded border border-borda px-1 py-1 text-xs bg-white">
-                {% for r in roles %}<option {{ 'selected' if r == u.role }}>{{ r }}</option>{% endfor %}
-              </select>
-              <input type="password" name="senha" placeholder="nova senha" class="rounded border border-borda px-2 py-1 text-xs w-28">
-              <label class="text-xs flex items-center gap-1"><input type="checkbox" name="ativo" {{ 'checked' if u.ativo }} class="accent-bangalo-500">at.</label>
-              <button class="px-2 py-1 rounded bg-bangalo-500 text-white text-xs">OK</button>
+<section class="surface" aria-labelledby="t-usr">
+  <h2 id="t-usr" class="sr-only">Usuários</h2>
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Situação</th><th>Último acesso</th><th class="actions">Ações</th></tr></thead>
+      <tbody>
+        {% for u in usuarios %}
+        <tr class="{{ 'muted-row' if not u.ativo }}">
+          <td data-label="Nome" class="strong wrap">{{ u.nome }}{% if u.id == current_user.id %} <small class="caption">(você)</small>{% endif %}</td>
+          <td data-label="E-mail" class="wrap">{{ u.email }}</td>
+          <td data-label="Papel">
+            {{ ui.badge(u.papel_rotulo, 'orange' if u.role == 'consultoria' else '') }}
+            {% if u.permissoes_personalizadas %}<small class="caption" style="display:block">permissões ajustadas</small>{% endif %}
+          </td>
+          <td data-label="Situação">{{ ui.badge('Ativo', 'green') if u.ativo else ui.badge('Inativo') }}</td>
+          <td data-label="Último acesso">{{ u.ultimo_login | data('%d/%m/%Y %H:%M') if u.ultimo_login else 'Nunca' }}</td>
+          <td data-label="Ações" class="actions">
+            <button type="button" class="btn small" data-open="dlg-usuario" data-titulo="Editar usuário"
+                    data-fill-id="{{ u.id }}" data-fill-nome="{{ u.nome }}" data-fill-email="{{ u.email }}"
+                    data-fill-role="{{ u.role }}" data-fill-ativo="{{ '1' if u.ativo else '0' }}" data-fill-senha=""
+                    data-permissoes="{{ u.permissoes_efetivas | sort | join(',') }}">Editar</button>
+            <form method="post" action="{{ url_for('admin.encerrar_sessoes', user_id=u.id) }}"
+                  data-confirm="Encerrar as sessões abertas de {{ u.nome }}? Será preciso entrar de novo em todos os aparelhos.">
+              {{ ui.csrf() }}<button type="submit" class="btn ghost small">Encerrar sessões</button>
             </form>
-          </details>
-        </td>
-      </tr>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="surface mt-24" aria-labelledby="t-matriz">
+  <div class="section-top"><h2 id="t-matriz">O que cada papel pode fazer</h2></div>
+  <p class="muted">Todos os papéis visualizam as telas operacionais. A tabela mostra o padrão de cada papel; o administrador pode ajustar por usuário, menos a Administração, que é só do administrador total.</p>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Permissão</th>{% for chave, p in papeis.items() %}<th class="num">{{ p.rotulo }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for chave, (rotulo, explicacao) in permissoes.items() %}
+        <tr>
+          <td class="wrap"><strong>{{ rotulo }}</strong><small class="caption" style="display:block">{{ explicacao }}</small></td>
+          {% for papel in papeis %}
+            <td class="num">{% if chave in padroes[papel] %}{{ ui.icon('check', 'Sim') }}{% else %}<span class="caption" aria-label="Não">—</span>{% endif %}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% call ui.dialog('dlg-usuario', 'Novo usuário', 'drawer') %}
+  <form method="post" action="{{ url_for('admin.salvar_usuario') }}" id="form-usuario" class="dialog-body" data-busy="Salvando…">
+    {{ ui.csrf() }}<input type="hidden" name="id" value="">
+    <p class="caption">Campos com * são obrigatórios.</p>
+    {{ ui.field('nome', 'Nome', '', 'text', True, id='us-nome', attrs='maxlength="120" autocomplete="off"') }}
+    {{ ui.field('email', 'E-mail', '', 'email', True, id='us-email', attrs='maxlength="255" autocomplete="off"') }}
+    <div class="field">
+      <label for="us-role">Papel <span class="required" aria-hidden="true">*</span></label>
+      <select id="us-role" name="role" required aria-describedby="us-role-ajuda">
+        {% for chave, p in papeis.items() %}
+          <option value="{{ chave }}" data-padrao="{{ padroes[chave] | join(',') }}" data-descricao="{{ p.descricao }}" {{ 'selected' if chave == 'gerencia' }}>{{ p.rotulo }}</option>
+        {% endfor %}
+      </select>
+      <p class="help" id="us-role-ajuda">{{ papeis.gerencia.descricao }}</p>
+    </div>
+
+    <fieldset class="field" id="us-permissoes">
+      <legend>Permissões</legend>
+      <p class="help">Ao trocar o papel, as caixas voltam ao padrão dele. Ajuste só se esta pessoa precisar de algo diferente.</p>
+      {% for chave, (rotulo, explicacao) in permissoes.items() %}
+        <label class="check">
+          <input type="checkbox" name="permissoes" value="{{ chave }}" {{ 'data-so-admin' if chave in so_admin }}
+                 {{ 'checked' if chave in padroes.gerencia }} {{ 'disabled' if chave in so_admin }}>
+          <span>{{ rotulo }}<small class="caption" style="display:block">{{ explicacao }}{% if chave in so_admin %} Só administrador total.{% endif %}</small></span>
+        </label>
       {% endfor %}
-    </tbody>
-  </table>
-</div>
+    </fieldset>
+
+    {{ ui.field('senha', 'Senha', '', 'password', id='us-senha', ajuda='Mínimo de ' ~ senha_minima ~ ' caracteres, com letras e números ou símbolos. Ao editar, deixe em branco para manter a senha atual. Definir senha encerra as sessões abertas da pessoa.', attrs='minlength="' ~ senha_minima ~ '" maxlength="200" autocomplete="new-password"') }}
+    <label class="check"><input type="checkbox" name="ativo" checked>Usuário ativo</label>
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-usuario" class="btn primary">Salvar</button>
+  </div>
+{% endcall %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var dialogo = document.getElementById("dlg-usuario");
+  var papel = document.getElementById("us-role");
+  var ajuda = document.getElementById("us-role-ajuda");
+  var caixas = Array.from(dialogo.querySelectorAll('input[name="permissoes"]'));
+
+  function aplicar(lista) {
+    var admin = papel.value === "consultoria";
+    caixas.forEach(function (c) {
+      c.checked = admin || lista.indexOf(c.value) !== -1;
+      // administrador total tem tudo; "Administração" nunca vai para outro papel
+      c.disabled = admin || c.hasAttribute("data-so-admin");
+    });
+    ajuda.textContent = papel.selectedOptions[0].dataset.descricao;
+  }
+  function padrao() { return (papel.selectedOptions[0].dataset.padrao || "").split(",").filter(Boolean); }
+
+  papel.addEventListener("change", function () { aplicar(padrao()); });
+  // o clique que abre o diálogo roda antes (clareza.js preenche os campos); ajusta em seguida
+  document.addEventListener("click", function (ev) {
+    var botao = ev.target.closest('[data-open="dlg-usuario"]');
+    if (!botao) return;
+    if (botao.hasAttribute("data-usuario-novo")) { papel.value = "gerencia"; aplicar(padrao()); }
+    else aplicar((botao.dataset.permissoes || "").split(",").filter(Boolean));
+  });
+})();
+</script>
 {% endblock %}

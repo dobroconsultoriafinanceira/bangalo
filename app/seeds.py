@@ -8,6 +8,7 @@ from decimal import Decimal
 from flask import current_app
 
 from app.extensions import db
+from app.models.banco import RegraClassificacaoBancaria
 from app.models.fluxo import Categoria, Fornecedor
 from app.models.gorjetas import Colaborador, Funcao, Setor
 from app.models.metas import PremissaMeta
@@ -21,10 +22,13 @@ SETORES = [
 ]
 
 # ---- Funções e pontos (pesos reais da planilha) ----
+# Tabela da calculadora de 16/09/2026: o auxiliar virou dois níveis de
+# senioridade (1 = mais experiente) e o ASG subiu de 0,5 para 1 ponto.
 FUNCOES = [
     ("Cozinheiro", "Cozinha", Decimal("2")),
-    ("Auxiliar de Cozinha", "Cozinha", Decimal("1")),
-    ("ASG", "Cozinha", Decimal("0.5")),
+    ("Auxiliar de Cozinha 1", "Cozinha", Decimal("1.5")),
+    ("Auxiliar de Cozinha 2", "Cozinha", Decimal("1")),
+    ("ASG", "Cozinha", Decimal("1")),
     ("Cozinheiro em experiência", "Cozinha", Decimal("1")),
     ("Garçom", "Salão", Decimal("2")),
     ("Garçom em experiência", "Salão", Decimal("1")),
@@ -33,18 +37,23 @@ FUNCOES = [
     ("Caixa", "Caixa", Decimal("1")),
 ]
 
-# ---- Plano de contas: (nome, tipo, grupo) ----
+# ---- Plano de contas: (nome, tipo, categoria) ----
+# "categoria" é o 1º seletor da tela e "nome" o 2º (subcategoria). Categorias sem
+# subcategoria repetem o próprio nome; em Compras a subcategoria é o fornecedor.
 CATEGORIAS_ENTRADA = [
-    # Entradas
-    *[(n, "entrada", "Entradas") for n in [
+    *[(n, "entrada", "Vendas - Repasse Stone") for n in [
         "Visa Crédito", "Master Card Crédito", "ELO Crédito", "Amex Crédito",
-        "ELO Débito", "Visa Electron Débito", "Maestro Débito", "Dinheiro",
-        "IFOOD", "99 FOOD", "Pagamento em PIX",
+        "ELO Débito", "Visa Eletron Débito", "Maestro Débito", "Pix Stone",
     ]],
-    ("Patrocínio", "entrada", "Outras Entradas"),
-    ("Empréstimos", "entrada", "Outras Entradas"),
-    ("Resgate", "entrada", "Outras Entradas"),
-    ("Outros/Acerto", "entrada", "Outras Entradas"),
+    ("Pix Itau", "entrada", "Pix Itau"),
+    ("Outros/Acertos", "entrada", "Outros/Acertos"),
+    ("Patrocínio", "entrada", "Patrocínio"),
+    ("Empréstimo", "entrada", "Empréstimo"),
+    ("Resgate", "entrada", "Resgate"),
+    ("IFOOD", "entrada", "IFOOD"),
+    ("99 FOOD", "entrada", "99 FOOD"),
+    ("Dinheiro", "entrada", "Dinheiro"),
+    ("RENDIMENTO", "entrada", "RENDIMENTO"),
 ]
 
 CATEGORIAS_SAIDA = [
@@ -53,26 +62,26 @@ CATEGORIAS_SAIDA = [
         "Salários", "Funcionário por fora", "Administrativo/Financeiro",
         "DARFS (Funcionários + sócia)", "13º Salário", "FGTS", "Férias",
         "Rescisão", "Dobras", "Comissão", "Vale Transporte", "Vales",
-        "Medicina Trabalho", "Sigaban", "Sindirefeições", "Life Card/Shalon",
-        "Funcionário Extra", "Ações/Acordos Trabalhistas",
+        "Plano de saude Assim", "Medicina Trabalho", "Sigaban", "Sindirefeições",
+        "Life Card/Shalon", "Funcionário Extra", "Ações/Acordos Trabalhistas",
     ]],
     *[(n, "saida", "Demais Salários") for n in [
-        "Pro Labore/Lucro", "Músicos", "Técnico Som", "Segurança",
+        "Pro Labore", "Distribuição de Lucros", "Músicos", "Técnico Som", "Segurança",
     ]],
-    ("Compras", "saida", "Compras (CPV)"),
+    ("Compras", "saida", "Compras"),
     *[(n, "saida", "Despesas Fixas") for n in [
-        "Contabilidade", "Cartão de Crédito 15 Itaú", "Cartão de Crédito 26 Itaú",
-        "Cartão de Crédito 5 Itaú", "IGUA", "Condomínio", "Aluguel", "IPTU",
-        "Light", "Gedisa (luz)", "Net", "Enincêndio", "Darf iFood",
-        "Fiel Limpeza Caixa d'Água", "CEG", "Aster (Dedetização)", "Atto Service",
-        "GRDJ/FREST", "Emantec/iNova", "Ecad", "Clauwan/C.Villela", "Seguro",
-        "Força Ambiental", "Marketing/Fotografias/Gráfica", "Taxa Inspeção Sanitária",
-        "Taxa Incêndio", "Tuap", "Manutenção/Obras/Equip.", "Nutricionista",
-        "NixConsultoria", "Virtual Market", "Control ID", "Abrasel",
-        "Assessoria Financeira", "Falae/Experiência B2S", "Jurídico",
-        "Outros DARJ/DARM/DIFAL",
+        "Abrasel", "Aluguel", "Assessoria Financeira", "Aster (Dedetização)",
+        "Atto Service", "Cartão de Crédito 15 Itaú", "Cartão de Crédito 26 Itaú",
+        "Cartão de Crédito 5 Itaú", "CEG", "Clauwan/C.Villela", "Condomínio",
+        "Contabilidade", "Control ID", "Darf iFood", "Ecad", "Emantec/iNova",
+        "Enincêndio", "Falae/Experiência B2S", "Fiel Limpeza Caixa d'Água",
+        "Força Ambiental", "Gedisa (luz)", "GRDJ/FREST", "IGUA", "IPTU", "Jurídico",
+        "Light", "Manutenção/Obras/Equip.", "Marketing/Fotografias/Gráfica", "Net",
+        "NixConsultoria", "Nutricionista", "Outros DARJ/DARM/DIFAL", "Seguro",
+        "Taxa Incêndio", "Taxa Inspeção Sanitária", "Tuap", "Versatily toldo",
+        "Virtual Market",
     ]],
-    *[(n, "saida", "Despesas Gerais") for n in [
+    *[(n, "saida", "Outras despesas") for n in [
         "Empréstimos Heitor", "Dívidas Receita (Simples/PERT)", "Aplicação",
         "Despesas Bancárias", "Reembolso Barbara", "Multas", "Outros Acertos",
     ]],
@@ -112,6 +121,19 @@ FORNECEDORES = [
     "OUTROS GASTOS",
 ]
 
+# ---- Regras de classificação do extrato bancário (definidas com a cliente em 15/09/2026) ----
+# (campo, valor, tipo, categoria gerencial, revisar, observação)
+REGRAS_CLASSIFICACAO_BANCARIA = [
+    ("contraparte_nome", "BARBARA MENDES GONCALVES", "debito", "soc_a_detalhar", True,
+     "Sócia: os PIX misturam pró-labore, retirada e reembolso — detalhar cada um"),
+    ("contraparte_nome", "HEITOR MENDES GONCALVES", "debito", "fin_emprestimo_pagamento", False,
+     "Empréstimos Heitor"),
+    ("contraparte_nome", "MANOELA MENDES GONCALVES", "debito", "pag_folha", False,
+     "Administrativo/Financeiro"),
+    ("contraparte_nome", "A BRAS CIENCIAS MECANICAS", "credito", "rec_eventos", False,
+     "Evento/reserva"),
+]
+
 
 def seed_admin() -> str:
     email = current_app.config["ADMIN_EMAIL"]
@@ -121,12 +143,24 @@ def seed_admin() -> str:
     ).scalar_one_or_none()
     if existente:
         return f"Admin já existe: {email}"
-    if not senha:
-        senha = "bangalo-trocar-123"  # dev: força troca no primeiro login
+    gerada = not senha
+    if gerada:
+        # nunca uma senha padrão conhecida: gera uma aleatória e mostra uma única vez
+        import secrets
+
+        senha = secrets.token_urlsafe(18)
+    else:
+        from app.utils.seguranca import problema_na_senha
+
+        problema = problema_na_senha(senha, email=email)
+        if problema:
+            raise ValueError(f"ADMIN_PASSWORD recusada: {problema}")
     admin = Usuario(nome="Consultoria Dobro", email=email, role="consultoria", ativo=True)
     admin.definir_senha(senha)
     db.session.add(admin)
-    return f"Admin criado: {email} (troque a senha no primeiro login)"
+    if gerada:
+        return f"Admin criado: {email} · senha provisória (anote agora, não aparece de novo): {senha}"
+    return f"Admin criado: {email} (troque a senha no primeiro login em Perfil › Trocar minha senha)"
 
 
 def seed_setores_funcoes() -> list[str]:
@@ -146,18 +180,21 @@ def seed_setores_funcoes() -> list[str]:
         ).scalar_one_or_none()
         if not f:
             db.session.add(Funcao(nome=nome, setor_id=setor.id, pontos_padrao=pontos))
+        elif f.pontos_padrao != pontos:
+            f.pontos_padrao = pontos  # a tabela de pontos muda com o tempo
     rel.append(f"Setores: {len(SETORES)} · Funções: {len(FUNCOES)}")
     return rel
 
 
 def seed_plano_contas() -> str:
     total = 0
-    for nome, tipo, grupo in CATEGORIAS_ENTRADA + CATEGORIAS_SAIDA:
+    for ordem, (nome, tipo, grupo) in enumerate(CATEGORIAS_ENTRADA + CATEGORIAS_SAIDA):
         existe = db.session.execute(
             db.select(Categoria).filter_by(nome=nome, grupo=grupo)
         ).scalar_one_or_none()
         if not existe:
-            db.session.add(Categoria(nome=nome, tipo=tipo, grupo=grupo, ativo=True))
+            db.session.add(Categoria(nome=nome, tipo=tipo, grupo=grupo, ativo=True,
+                                     ordem=ordem))
             total += 1
     return f"Plano de contas: {total} categorias novas"
 
@@ -185,11 +222,28 @@ def seed_premissas() -> str:
     return f"Premissa {ano} criada (60/40, crescimento 8%)"
 
 
+def seed_regras_classificacao() -> str:
+    """Cria as regras iniciais; não altera regras já existentes (podem ter sido ajustadas na tela)."""
+    total = 0
+    for campo, valor, tipo, categoria, revisar, observacao in REGRAS_CLASSIFICACAO_BANCARIA:
+        existe = db.session.execute(
+            db.select(RegraClassificacaoBancaria).filter_by(campo=campo, valor=valor, tipo=tipo)
+        ).scalar_one_or_none()
+        if not existe:
+            db.session.add(RegraClassificacaoBancaria(
+                campo=campo, valor=valor, tipo=tipo, categoria=categoria,
+                revisar=revisar, observacao=observacao,
+            ))
+            total += 1
+    return f"Regras de classificação bancária: {total} novas"
+
+
 def rodar_tudo() -> list[str]:
     rel = [seed_admin()]
     rel += seed_setores_funcoes()
     rel.append(seed_plano_contas())
     rel.append(seed_fornecedores())
     rel.append(seed_premissas())
+    rel.append(seed_regras_classificacao())
     db.session.commit()
     return rel

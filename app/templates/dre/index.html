@@ -1,252 +1,110 @@
 {% extends "base.html" %}
-{% block titulo %}DRE Gerencial{% endblock %}
-
-{% block head_extra %}
-<style>
-  .dre-section { background: #F8F7F5; }
-  .dre-total   { background: #FBF0E9; }
-  .dre-result  { background: #FBF0E9; }
-</style>
-{% endblock %}
-
+{% import "dre/_macros.html" as dre with context %}
+{% block titulo %}DRE · realizado × previsto{% endblock %}
 {% block conteudo %}
-{# ── helpers ─────────────────────────────────────────────────── #}
-{% set rb  = atual.receita_bruta %}
+{% set rb = atual.receita_bruta %}
 {% set rb_ant = anterior.receita_bruta %}
 
-{# pct_rb: % de um valor sobre a receita bruta atual; retorna None se base=0 #}
-{% macro pct_rb(val) %}
-  {%- if rb and rb != 0 -%}{{ "%.1f"|format((val / rb * 100)|float) }}%{%- else -%}—{%- endif %}
-{% endmacro %}
+{% macro pct_rb(val) -%}
+  {%- if rb -%}{{ ('%.1f' | format((val / rb * 100) | float)) | replace('.', ',') }}%{%- else -%}—{%- endif -%}
+{%- endmacro %}
 
-{# delta_brl: Δ absoluto atual vs anterior, com cor direcional #}
-{# bom_quando: "alto" = verde se positivo; "baixo" = verde se negativo #}
-{% macro delta_cell(val, val_ant, bom_quando="alto") %}
-  {% set d = val - val_ant %}
-  {% if val_ant == 0 %}
-    <span class="text-gray-300">—</span>
-  {% else %}
-    {% set good = (d > 0) if bom_quando == "alto" else (d < 0) %}
-    <span class="font-medium {{ 'text-ok' if (good and d != 0) else 'text-erro' if (not good and d != 0) else 'text-gray-400' }}">
-      {{ d | brl(False) }}
-    </span>
+{% macro delta(val, val_ant, bom_quando="alto") -%}
+  {%- if val_ant == 0 -%}—
+  {%- else -%}
+    {%- set d = val - val_ant -%}
+    {%- set bom = (d > 0) if bom_quando == 'alto' else (d < 0) -%}
+    <span class="{{ 'good' if bom and d != 0 else 'bad' if d != 0 else 'muted' }}">{{ d | brl }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{# linha: (rótulo, chave, estilo, bom_quando) — estilo: grupo | item | subtotal | total #}
+{% set linhas = [
+  ('Receita', none, 'grupo', ''),
+  ('Receita bruta (entradas)', 'receita_bruta', 'item', 'alto'),
+  ('(−) Impostos', 'impostos', 'item', 'baixo'),
+  ('= Receita líquida', 'receita_liquida', 'total', 'alto'),
+  ('Custo dos produtos vendidos', none, 'grupo', ''),
+  ('(−) CMV (compras de insumos)', 'cpv', 'item', 'baixo'),
+  ('= Lucro bruto', 'lucro_bruto', 'total', 'alto'),
+  ('Despesas operacionais', none, 'grupo', ''),
+  ('Folha / salários', 'folha', 'item', 'baixo'),
+  ('Demais salários', 'demais_salarios', 'item', 'baixo'),
+  ('(−) Total com pessoal', 'total_pessoal', 'subtotal', 'baixo'),
+  ('Prime Cost: CMV + pessoal (indicador)', 'prime_cost', 'subtotal', 'baixo'),
+  ('Despesas fixas', 'despesas_fixas', 'item', 'baixo'),
+  ('Despesas gerais', 'despesas_gerais', 'item', 'baixo'),
+  ('(−) Total despesas operacionais', 'total_desp_operacionais', 'subtotal', 'baixo'),
+  ('= Resultado operacional (EBITDA)', 'resultado_operacional', 'total', 'alto'),
+  ('Outras receitas e ajustes', none, 'grupo', ''),
+  ('(+) Outras entradas', 'outras_entradas', 'item', 'alto'),
+  ('= Resultado do exercício', 'resultado', 'total', 'alto'),
+] %}
+
+{% call dre.cabecalho('previsto', 'dre.index', {'visao': 'completo' if not parcial and em_andamento else none}) %}
+  {% if em_andamento %}
+  <nav class="subnav mb-0" aria-label="Recorte do mês">
+    <a href="{{ url_for('dre.index', ano=ano, mes=mes, visao='realizado') }}" class="{{ 'active' if parcial }}" {% if parcial %}aria-current="page"{% endif %}>Realizado até {{ corte | data('%d/%m') }}</a>
+    <a href="{{ url_for('dre.index', ano=ano, mes=mes, visao='completo') }}" class="{{ 'active' if not parcial }}" {% if not parcial %}aria-current="page"{% endif %}>Inclui previsto</a>
+  </nav>
   {% endif %}
-{% endmacro %}
+{% endcall %}
 
-{# ── ROW MACROS ──────────────────────────────────────────────── #}
-{% macro row_section(label) %}
-<tr class="dre-section border-t-2 border-gray-200">
-  <td colspan="5" class="px-5 py-2 text-[11px] font-bold uppercase tracking-widest text-gray-400">{{ label }}</td>
-</tr>
-{% endmacro %}
-
-{% macro row_detail(label, val, val_ant, bom_quando="alto") %}
-<tr class="border-t border-gray-100 hover:bg-bangalo-50/30 transition-colors">
-  <td class="px-5 pl-9 py-2.5 text-gray-600 text-sm">{{ label }}</td>
-  <td class="num px-4 py-2.5 text-sm">
-    {% if val != 0 %}{{ val | brl }}{% else %}<span class="text-gray-300">—</span>{% endif %}
-  </td>
-  <td class="num px-3 py-2.5 text-xs text-gray-400">
-    {% if val != 0 %}{{ pct_rb(val) }}{% else %}—{% endif %}
-  </td>
-  <td class="num px-4 py-2.5 text-sm text-gray-400">
-    {% if val_ant != 0 %}{{ val_ant | brl }}{% else %}<span class="text-gray-300">—</span>{% endif %}
-  </td>
-  <td class="num px-4 py-2.5 text-xs">{{ delta_cell(val, val_ant, bom_quando) }}</td>
-</tr>
-{% endmacro %}
-
-{% macro row_subtotal(label, val, val_ant, bom_quando="alto") %}
-<tr class="border-t border-gray-200 bg-gray-50">
-  <td class="px-5 py-2.5 font-semibold text-sm text-gray-700">{{ label }}</td>
-  <td class="num px-4 py-2.5 font-semibold text-sm">
-    {{ val | brl }}
-  </td>
-  <td class="num px-3 py-2.5 text-xs text-gray-500 font-medium">{{ pct_rb(val) }}</td>
-  <td class="num px-4 py-2.5 text-sm text-gray-400 font-medium">{{ val_ant | brl }}</td>
-  <td class="num px-4 py-2.5 text-xs">{{ delta_cell(val, val_ant, bom_quando) }}</td>
-</tr>
-{% endmacro %}
-
-{% macro row_total(label, val, val_ant, bom_quando="alto") %}
-{% set positive = val >= 0 %}
-<tr class="dre-total border-t-2 border-bangalo-200">
-  <td class="px-5 py-3 font-bold text-bangalo-800">{{ label }}</td>
-  <td class="num px-4 py-3 font-bold text-base {{ 'text-ok' if positive else 'text-erro' }}">
-    {{ val | brl }}
-  </td>
-  <td class="num px-3 py-3 text-xs font-semibold {{ 'text-ok' if positive else 'text-erro' }}">
-    {{ pct_rb(val) }}
-  </td>
-  <td class="num px-4 py-3 font-medium text-gray-500">{{ val_ant | brl }}</td>
-  <td class="num px-4 py-3 text-xs">{{ delta_cell(val, val_ant, bom_quando) }}</td>
-</tr>
-{% endmacro %}
-
-{# ── KPI helpers ─────────────────────────────────────────────── #}
-{% set margem_bruta      = (atual.lucro_bruto / rb * 100)       if rb else none %}
-{% set margem_op         = (atual.resultado_operacional / rb * 100) if rb else none %}
-{% set margem_liquida    = (atual.resultado / rb * 100)          if rb else none %}
-{% set delta_rb_pct      = ((rb - rb_ant) / rb_ant * 100)       if rb_ant else none %}
-{% set margem_bruta_ant  = (anterior.lucro_bruto / rb_ant * 100) if rb_ant else none %}
-{% set margem_op_ant     = (anterior.resultado_operacional / rb_ant * 100) if rb_ant else none %}
-
-{# ═══════════════════════════════════════════════════════════════ #}
-{#                       PAGE CONTENT                              #}
-{# ═══════════════════════════════════════════════════════════════ #}
-
-<!-- Header -->
-<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 s-in">
-  <div>
-    <h1 class="text-2xl font-titulo font-bold text-tinta">DRE Gerencial</h1>
-    <p class="text-sm text-gray-500 mt-0.5">Demonstrativo de Resultado do Exercício · por competência</p>
-  </div>
-  <div class="flex items-center gap-2">
-    <a href="{{ url_for('dre.index', ano=ano_ant, mes=mes_ant) }}"
-       class="p-2 rounded-lg border border-borda text-gray-500 hover:border-bangalo-300 hover:text-bangalo-600 transition-colors">
-      <i data-lucide="chevron-left" class="w-4 h-4"></i>
-    </a>
-    <div class="px-5 py-2 rounded-lg bg-bangalo-500 text-white font-semibold text-sm min-w-[140px] text-center">
-      {{ mes_nome }} {{ ano }}
-    </div>
-    <a href="{{ url_for('dre.index', ano=ano_prox, mes=mes_prox) }}"
-       class="p-2 rounded-lg border border-borda text-gray-500 hover:border-bangalo-300 hover:text-bangalo-600 transition-colors">
-      <i data-lucide="chevron-right" class="w-4 h-4"></i>
-    </a>
-  </div>
-</div>
-
-<!-- KPI Cards -->
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-
-  <!-- Receita Bruta -->
-  <div class="bg-white rounded-xl border border-borda p-4 s-hover s-in d1">
-    <p class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Receita Bruta</p>
-    <p class="text-xl font-bold font-titulo text-tinta num">{{ rb | brl }}</p>
-    {% if delta_rb_pct is not none %}
-    <p class="mt-1.5 flex items-center gap-1.5">
-      <span class="delta-badge {{ 'delta-up' if delta_rb_pct >= 0 else 'delta-down' }}">
-        {{ '↑' if delta_rb_pct >= 0 else '↓' }} {{ "%.1f"|format(delta_rb_pct|abs) }}%
-      </span>
-      <span class="text-[11px] text-gray-400">vs {{ mes_ant_nome }}</span>
-    </p>
+{% call ui.notice('warn' if futuro else '') %}
+  <p>Regime de caixa (lançamentos do fluxo) · {{ mes_nome }} {{ ano }}
+    {%- if parcial %} até {{ corte | data('%d/%m') }} · comparado com {{ mes_ant_nome }} dias 1–{{ dia_ant }}
+    {%- elif futuro %} · mês futuro: todos os valores são previstos
+    {%- else %} · comparado com {{ mes_ant_nome }} completo{% endif %}.
+    {% if parcial and previsto and (previsto.entradas or previsto.saidas) %}
+      Previsto de {{ previsto.inicio | data('%d/%m') }} a {{ previsto.fim | data('%d/%m') }}: + {{ previsto.entradas | brl }} entradas · − {{ previsto.saidas | brl }} saídas.
     {% endif %}
+  </p>
+{% endcall %}
+
+<section class="metrics" aria-label="Resultado do mês">
+  {% set delta_rb = ((rb - rb_ant) / rb_ant * 100) if rb_ant else none %}
+  {{ ui.metric('Receita bruta', rb | brl,
+      (('%+.1f' | format(delta_rb)) | replace('.', ',') ~ '% vs ' ~ mes_ant_nome) if delta_rb is not none else 'Sem base de comparação') }}
+  {% set pct_pc = (atual.prime_cost / rb * 100) if rb else none %}
+  {{ ui.metric('Resultado operacional', atual.resultado_operacional | brl,
+      'CMV ' ~ (pct_rb(atual.cpv)) ~ ' · Prime Cost ' ~ (pct_rb(atual.prime_cost)) ~ ' da receita',
+      'bad' if atual.resultado_operacional < 0 else '') }}
+  {{ ui.metric('Resultado', atual.resultado | brl, 'Margem ' ~ pct_rb(atual.resultado), 'bad' if atual.resultado < 0 else '') }}
+</section>
+
+<section class="surface" aria-labelledby="t-demo">
+  <div class="section-top">
+    <h2 id="t-demo">Demonstrativo completo</h2>
+    <small>% sobre a receita bruta</small>
   </div>
-
-  <!-- Margem Bruta -->
-  <div class="bg-white rounded-xl border border-borda p-4 s-hover s-in d2">
-    <p class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Margem Bruta</p>
-    <p class="text-xl font-bold font-titulo num {{ 'text-ok' if margem_bruta and margem_bruta >= 0 else 'text-erro' }}">
-      {% if margem_bruta is not none %}{{ "%.1f"|format(margem_bruta) }}%{% else %}—{% endif %}
-    </p>
-    {% if margem_bruta is not none and margem_bruta_ant is not none %}
-    {% set d = margem_bruta - margem_bruta_ant %}
-    <p class="mt-1.5 flex items-center gap-1.5">
-      <span class="delta-badge {{ 'delta-up' if d >= 0 else 'delta-down' }}">
-        {{ '↑' if d >= 0 else '↓' }} {{ "%.1f"|format(d|abs) }} p.p.
-      </span>
-      <span class="text-[11px] text-gray-400">vs {{ mes_ant_nome }}</span>
-    </p>
-    {% endif %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Conta</th>
+          <th class="num">{{ mes_nome }} {{ ano }}{% if parcial %} · até {{ corte | data('%d/%m') }}{% endif %}</th>
+          <th class="num">%</th>
+          <th class="num">{{ mes_ant_nome }} {{ ano_ant }}{% if parcial %} · dias 1–{{ dia_ant }}{% endif %}</th>
+          <th class="num">Variação</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rotulo, chave, estilo, bom in linhas %}
+          {% if estilo == 'grupo' %}
+            <tr class="group"><td colspan="5">{{ rotulo }}</td></tr>
+          {% else %}
+            {% set v, va = atual[chave], anterior[chave] %}
+            <tr class="{{ 'total' if estilo == 'total' else 'sub' if estilo == 'item' else '' }}">
+              <td class="{{ 'strong' if estilo == 'subtotal' }}">{{ rotulo }}</td>
+              <td class="num {{ 'bad' if estilo == 'total' and v < 0 }}">{{ (v | brl) if (v or estilo != 'item') else '—' }}</td>
+              <td class="num muted">{{ pct_rb(v) if (v or estilo != 'item') else '—' }}</td>
+              <td class="num muted">{{ (va | brl) if (va or estilo != 'item') else '—' }}</td>
+              <td class="num">{{ delta(v, va, bom) }}</td>
+            </tr>
+          {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
-
-  <!-- Resultado Operacional -->
-  <div class="bg-white rounded-xl border border-borda p-4 s-hover s-in d3">
-    <p class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Res. Operacional</p>
-    <p class="text-xl font-bold font-titulo num {{ 'text-ok' if atual.resultado_operacional >= 0 else 'text-erro' }}">
-      {{ atual.resultado_operacional | brl }}
-    </p>
-    {% if margem_op is not none %}
-    <p class="text-[11px] text-gray-400 mt-1">
-      {{ "%.1f"|format(margem_op) }}% da receita
-    </p>
-    {% endif %}
-  </div>
-
-  <!-- Resultado do Exercício -->
-  <div class="bg-white rounded-xl border border-borda p-4 s-hover s-in d4 {{ 'border-l-4 border-l-ok' if atual.resultado >= 0 else 'border-l-4 border-l-erro' }}">
-    <p class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Resultado</p>
-    <p class="text-xl font-bold font-titulo num {{ 'text-ok' if atual.resultado >= 0 else 'text-erro' }}">
-      {{ atual.resultado | brl }}
-    </p>
-    <p class="text-[11px] text-gray-400 mt-1">
-      Margem <strong class="{{ 'text-ok' if margem_liquida and margem_liquida >= 0 else 'text-erro' }}">
-        {% if margem_liquida is not none %}{{ "%.1f"|format(margem_liquida) }}%{% else %}—{% endif %}
-      </strong>
-    </p>
-  </div>
-
-</div>
-
-<!-- DRE Table -->
-<div class="bg-white rounded-xl border border-borda overflow-hidden s-in d5">
-
-  <div class="flex items-center justify-between px-5 py-3.5 border-b border-borda">
-    <h2 class="font-titulo font-semibold text-sm text-tinta flex items-center gap-2">
-      <i data-lucide="file-text" class="w-4 h-4 text-bangalo-500"></i>
-      Demonstrativo Completo
-    </h2>
-    <span class="text-[11px] text-gray-400 italic">% calculado sobre a Receita Bruta</span>
-  </div>
-
-  <div class="overflow-x-auto">
-  <table class="w-full text-sm">
-    <thead>
-      <tr class="border-b border-borda bg-gray-50 text-[11px] font-bold uppercase tracking-wider text-gray-400">
-        <th class="text-left px-5 py-3">Linha do DRE</th>
-        <th class="text-right px-4 py-3 text-tinta">{{ mes_nome }} / {{ ano }}</th>
-        <th class="text-right px-3 py-3">%</th>
-        <th class="text-right px-4 py-3">{{ mes_ant_nome }} / {{ ano_ant }}</th>
-        <th class="text-right px-4 py-3">Δ (R$)</th>
-      </tr>
-    </thead>
-    <tbody>
-
-      {# ───── RECEITA ───── #}
-      {{ row_section("Receita") }}
-      {{ row_detail   ("Receita Bruta (Entradas)", rb, rb_ant, bom_quando="alto") }}
-      {{ row_detail   ("(–) Impostos", atual.impostos, anterior.impostos, bom_quando="baixo") }}
-      {{ row_total    ("= Receita Líquida", atual.receita_liquida, anterior.receita_liquida) }}
-
-      {# ───── CUSTO ───── #}
-      {{ row_section("Custo dos Produtos Vendidos") }}
-      {{ row_detail  ("(–) Compras / CPV", atual.cpv, anterior.cpv, bom_quando="baixo") }}
-      {{ row_total   ("= Lucro Bruto", atual.lucro_bruto, anterior.lucro_bruto) }}
-
-      {# ───── DESPESAS OPERACIONAIS ───── #}
-      {{ row_section  ("Despesas Operacionais") }}
-      {{ row_detail   ("Folha / Salários", atual.folha, anterior.folha, bom_quando="baixo") }}
-      {{ row_detail   ("Demais Salários", atual.demais_salarios, anterior.demais_salarios, bom_quando="baixo") }}
-      {{ row_subtotal ("(–) Total com Pessoal", atual.total_pessoal, anterior.total_pessoal, bom_quando="baixo") }}
-      {{ row_detail   ("Despesas Fixas", atual.despesas_fixas, anterior.despesas_fixas, bom_quando="baixo") }}
-      {{ row_detail   ("Despesas Gerais", atual.despesas_gerais, anterior.despesas_gerais, bom_quando="baixo") }}
-      {{ row_subtotal ("(–) Total Desp. Operacionais", atual.total_desp_operacionais, anterior.total_desp_operacionais, bom_quando="baixo") }}
-      {{ row_total    ("= Resultado Operacional (EBITDA)", atual.resultado_operacional, anterior.resultado_operacional) }}
-
-      {# ───── OUTRAS RECEITAS ───── #}
-      {{ row_section  ("Outras Receitas / Ajustes") }}
-      {{ row_detail   ("(+) Outras Entradas", atual.outras_entradas, anterior.outras_entradas, bom_quando="alto") }}
-
-      {# ───── RESULTADO FINAL ───── #}
-      {% set pos = atual.resultado >= 0 %}
-      <tr class="border-t-2 border-bangalo-300 {{ 'bg-green-50' if pos else 'bg-red-50' }}">
-        <td class="px-5 py-4 font-bold text-base {{ 'text-ok' if pos else 'text-erro' }}">
-          = Resultado do Exercício
-        </td>
-        <td class="num px-4 py-4 font-bold text-base {{ 'text-ok' if pos else 'text-erro' }}">
-          {{ atual.resultado | brl }}
-        </td>
-        <td class="num px-3 py-4 font-semibold text-sm {{ 'text-ok' if pos else 'text-erro' }}">
-          {{ pct_rb(atual.resultado) }}
-        </td>
-        <td class="num px-4 py-4 font-medium text-gray-500">{{ anterior.resultado | brl }}</td>
-        <td class="num px-4 py-4 text-xs">{{ delta_cell(atual.resultado, anterior.resultado, "alto") }}</td>
-      </tr>
-
-    </tbody>
-  </table>
-  </div>
-
-</div>
-
+</section>
 {% endblock %}

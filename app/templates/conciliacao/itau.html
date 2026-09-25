@@ -1,0 +1,766 @@
+{% extends "base.html" %}
+{% block titulo %}Movimentações{% endblock %}
+{% block conteudo %}
+{% macro filtros_ocultos() %}
+  {{ ui.csrf() }}
+  <input type="hidden" name="inicio" value="{{ inicio.isoformat() }}">
+  <input type="hidden" name="fim" value="{{ fim.isoformat() }}">
+  <input type="hidden" name="status" value="{{ status }}">
+  <input type="hidden" name="bloco" value="{{ bloco }}">
+  <input type="hidden" name="q" value="{{ q }}">
+{% endmacro %}
+{% set periodo_args = {'inicio': inicio.isoformat(), 'fim': fim.isoformat(), 'q': q or None} %}
+
+{% call ui.page_header('Movimentações', 'Classificar o extrato do Itaú linha a linha. Conciliar só é necessário nos repasses da Stone, que juntam várias bandeiras num crédito só.') %}
+  {% if current_user.eh_consultoria %}
+    <button type="button" class="btn" data-open="dlg-sincronizar">{{ ui.icon('refresh-cw') }}Sincronizar Itaú</button>
+  {% endif %}
+  {% if pode_classificar %}
+    <button type="button" class="btn primary" id="btn-lote" data-open="dlg-lote" disabled
+            aria-describedby="lote-ajuda">{{ ui.icon('check') }}<span>Revisar selecionados</span></button>
+  {% endif %}
+{% endcall %}
+
+{% if not configurado %}
+  {% call ui.notice('warn') %}<p>Integração Itaú não configurada: a sincronização automática fica desligada até a consultoria preencher as credenciais.</p>{% endcall %}
+{% endif %}
+
+{# ── Abas: classificação, revisão e conciliação são estados diferentes ── #}
+{{ ui.tabs([
+  (url_for('conciliacao.itau', status='classificar', **periodo_args), 'A classificar · ' ~ contagens.classificar, status == 'classificar' and not bloco),
+  (url_for('conciliacao.itau', **periodo_args), 'Todos · ' ~ contagens.todos, status == 'todos' and not bloco),
+], 'Situação dos movimentos') }}
+
+{# a única conciliação que é trabalho: repasse da Stone que caiu no Itaú e ainda
+   não casou com o arquivo do dia (ele sai depois das 5h do dia seguinte) #}
+{% if contagens.pendentes and status != 'pendentes' %}
+  {% call ui.notice('error') %}
+    <p><strong>{{ contagens.pendentes }} movimento(s) sem lançamento no caixa.</strong>
+       Em geral é repasse da Stone cujo arquivo do dia ainda não chegou.
+       <a href="{{ url_for('conciliacao.itau', status='pendentes', **periodo_args) }}">Ver quais são</a>.</p>
+  {% endcall %}
+{% endif %}
+
+<form method="get" class="toolbar" role="search">
+  <input type="hidden" name="inicio" value="{{ inicio.isoformat() }}">
+  <input type="hidden" name="fim" value="{{ fim.isoformat() }}">
+  <input type="hidden" name="status" value="{{ status }}">
+  <input type="hidden" name="bloco" value="{{ bloco }}">
+  <label class="sr-only" for="busca">Buscar por contraparte ou descrição</label>
+  <input id="busca" class="search" type="search" name="q" value="{{ q }}" placeholder="Buscar por contraparte ou descrição…">
+  <button type="button" class="btn" data-open="dlg-filtros">{{ ui.icon('sliders-horizontal') }}Filtros</button>
+  <span class="push caption">{{ inicio | data }} a {{ fim | data }}{% if bloco and not (bloco == 'a_classificar' and status == 'todos') %} · {{ blocos[bloco] }}{% endif %}</span>
+</form>
+
+<section class="surface" aria-labelledby="t-lista">
+  <h2 id="t-lista" class="sr-only">Movimentos do extrato</h2>
+  {% if movimentos %}
+  <div class="table-wrap">
+    <table class="table responsive" id="tabela-movimentos">
+      <thead>
+        <tr>
+          {% if pode_classificar %}<th><label class="sr-only" for="sel-todos">Selecionar todos</label><input type="checkbox" id="sel-todos"></th>{% endif %}
+          <th>Data</th>
+          <th>Contraparte / descrição</th>
+          <th class="num">Valor</th>
+          <th>Classificação</th>
+          <th class="actions">Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in movimentos %}
+        {% set cat = categorias.get(m.categoria_gerencial) %}
+        {% if m.bloco == 'a_classificar' %}{% set cls_txt, cls_tom = 'Não classificada', 'red' %}
+        {% elif m.revisar %}{% set cls_txt, cls_tom = 'Para revisar', 'amber' %}
+        {% elif not m.revisado %}{% set cls_txt, cls_tom = 'Sugerida', 'orange' %}
+        {% else %}{% set cls_txt, cls_tom = 'Classificada', 'green' %}{% endif %}
+        {% if m.bloco in fora_conciliacao %}{% set conc_txt, conc_tom = 'Não se aplica', '' %}
+        {% elif m.itens_conciliacao | length > 1 %}
+          {% set conc_txt, conc_tom = 'Conciliado · ' ~ (m.itens_conciliacao | length) ~ ' lançamentos', 'green' %}
+        {% elif m.itens_conciliacao %}{% set conc_txt, conc_tom = 'Conciliado', 'green' %}
+        {% else %}{% set conc_txt, conc_tom = 'Pendente', '' %}{% endif %}
+        <tr id="mov-{{ m.id }}">
+          {% if pode_classificar %}
+          <td data-label="Selecionar">
+            <label class="sr-only" for="sel-{{ m.id }}">Selecionar {{ m.contraparte or m.descricao }}</label>
+            <input type="checkbox" class="sel-mov" id="sel-{{ m.id }}" value="{{ m.id }}"
+                   data-nome="{{ m.contraparte or m.descricao or '—' }}" data-valor="{{ m.valor_com_sinal | brl }}" {{ 'disabled' if m.revisado }}>
+          </td>
+          {% endif %}
+          <td data-label="Data" class="nowrap">{{ m.data | data }}</td>
+          <td data-label="Contraparte" class="wrap">
+            <span class="strong">{{ m.contraparte or m.descricao or '—' }}</span>
+            {% if m.estorno %}{{ ui.badge('Estorno') }}{% endif %}
+            {# a linha do caixa (planilha) vem primeiro; a categoria bancária é o apoio #}
+            {% set linha = m.lancamento.categoria.nome if m.lancamento and m.lancamento.categoria else none %}
+            <small>{% if m.contraparte and m.descricao %}{{ m.descricao }} · {% endif %}{{ linha or (cat.nome if cat else m.categoria_gerencial) }}{% if m.lancamento and m.lancamento.fornecedor %} · {{ m.lancamento.fornecedor.nome }}{% endif %}</small>
+          </td>
+          <td data-label="Valor" class="num">{{ m.valor_com_sinal | brl }}</td>
+          <td data-label="Classificação">{{ ui.badge(cls_txt, cls_tom) }}</td>
+          <td data-label="Ações" class="actions">
+            {% set concilia = not m.conciliacao_trivial %}
+            {% if pode_classificar and concilia and m.bloco not in fora_conciliacao %}
+            <button type="button" class="btn ghost small" data-conciliar
+              data-id="{{ m.id }}"
+              data-nome="{{ m.contraparte or m.descricao or '—' }}"
+              data-data="{{ m.data | data }}"
+              data-valor="{{ m.valor | brl }}"
+              data-valor-num="{{ m.valor }}"
+              data-url="{{ url_for('conciliacao.conciliacao_candidatos', mov_id=m.id) }}"
+              data-action="{{ url_for('conciliacao.conciliar_movimento', mov_id=m.id) }}">{{ 'Ver conciliação' if m.itens_conciliacao else 'Conciliar' }}</button>
+            {% endif %}
+            <button type="button" class="btn small" data-revisar
+              data-id="{{ m.id }}"
+              data-data="{{ m.data | data }}"
+              data-nome="{{ m.contraparte or m.descricao or '—' }}"
+              data-descricao="{{ m.descricao or '' }}"
+              data-valor="{{ m.valor_com_sinal | brl }}"
+              data-categoria="{{ m.categoria_gerencial }}"
+              data-linha="{{ m.categoria_id or (m.lancamento_proprio.categoria_id if m.lancamento_proprio else '') or '' }}"
+              data-bloco="{{ blocos.get(m.bloco, m.bloco) }}"
+              data-classificacao="{{ cls_txt }}" data-classificacao-tom="{{ cls_tom }}"
+              {% set mostra_conc = not m.conciliacao_trivial %}
+              data-conciliacao="{{ conc_txt if mostra_conc else '' }}" data-conciliacao-tom="{{ conc_tom }}"
+              data-regra="{{ '' if m.classificacao_manual else (m.regra_aplicada or '') }}"
+              data-manual="{{ '1' if m.classificacao_manual else '' }}"
+              data-fornecedor="{{ m.lancamento.fornecedor_id if m.lancamento and m.lancamento.fornecedor_id else '' }}"
+              data-tipo="{{ m.tipo }}"
+              data-alcance="{{ 'regra' if regra_de.get(m.id) and not m.classificacao_manual else 'movimento' }}"
+              data-derivado="{{ 'stone' if m.categoria_gerencial in ('rec_stone', 'rec_cartao') else ('socia' if m.id in derivados else '') }}"
+              data-itens="{{ itens_do_movimento.get(m.id, []) | tojson | forceescape }}"
+              data-valor-num="{{ m.valor }}"
+              data-candidatos="{{ url_for('conciliacao.conciliacao_candidatos', mov_id=m.id) }}"
+              data-revisado="{{ '1' if m.revisado else '' }}"
+              data-lancamento="{% if mostra_conc %}{% if m.itens_conciliacao | length > 1 %}{{ m.itens_conciliacao | length }} lançamentos do fluxo ({{ m.total_conciliado | brl }}){% elif m.lancamento %}{{ m.lancamento.categoria.nome }} · {{ m.lancamento.data | data }}{% endif %}{% endif %}"
+              data-desfazer="{{ url_for('conciliacao.desfazer', mov_id=m.id) if m.itens_conciliacao and mostra_conc else '' }}"
+              data-action="{{ url_for('conciliacao.revisar_movimento', mov_id=m.id) }}">{{ 'Revisar' if pode_classificar else 'Ver' }}</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="table-meta">
+    <span id="lote-ajuda">{{ movimentos | length }} movimento(s) no filtro{% if pode_classificar %} · selecione os não revisados para revisar em lote{% endif %}</span>
+  </div>
+  {% elif q or bloco or status != 'todos' %}
+    <div class="empty">
+      <div class="empty-icon">{{ ui.icon('search-x') }}</div>
+      <h2>Nenhum movimento com esses filtros</h2>
+      <p>{{ inicio | data }} a {{ fim | data }}{% if q %} · busca “{{ q }}”{% endif %}{% if bloco %} · {{ blocos[bloco] }}{% endif %}{% if status != 'todos' %} · {{ status_opcoes[status] }}{% endif %}</p>
+      <a class="btn" href="{{ url_for('conciliacao.itau', inicio=inicio.isoformat(), fim=fim.isoformat()) }}">Limpar filtros</a>
+    </div>
+  {% else %}
+    <div class="empty">
+      <div class="empty-icon">{{ ui.icon('landmark') }}</div>
+      <h2>Nenhum movimento no período</h2>
+      <p>Os movimentos chegam pela sincronização do extrato Itaú{% if current_user.eh_consultoria %}. Use “Sincronizar Itaú” para buscar o extrato{% endif %}.</p>
+    </div>
+  {% endif %}
+</section>
+
+{# ── Resumo do período (visão de CFO) sob demanda ── #}
+{% set socios = demo.por_bloco.get('socios') %}
+<section class="surface">
+  <details class="expand">
+    <summary>{{ ui.icon('chevron-right') }}Resumo do caixa Itaú no período</summary>
+    <div class="kpi-row mt-16">
+      <div class="kpi-mini"><div class="label">Saldo disponível Itaú</div><div class="value">{{ saldo.disponivel | brl if saldo else '—' }}</div>
+        <small>{% if saldo and saldo.aplicacao_automatica %}inclui {{ saldo.aplicacao_automatica | brl }} em aplicação automática · {% endif %}{% if ultima_sync %}atualizado {{ ultima_sync | data('%d/%m/%Y %H:%M') }}{% else %}nunca sincronizado{% endif %}</small></div>
+      <div class="kpi-mini"><div class="label">Geração de caixa operacional</div><div class="value {{ 'bad' if demo.geracao_operacional < 0 }}">{{ demo.geracao_operacional | brl }}</div>
+        <small>{{ demo.recebimentos | brl }} recebido · {{ demo.pagamentos | brl }} pago</small></div>
+      <div class="kpi-mini"><div class="label">Sócios e financiamentos</div><div class="value">{{ socios.liquido | brl if socios else '—' }}</div>
+        <small>retiradas e empréstimos — fora da operação</small></div>
+      <div class="kpi-mini"><div class="label">Conciliação</div><div class="value">{{ resumo.conciliados }} de {{ resumo.conciliaveis }}</div>
+        <small>movimentos conciliáveis com o fluxo</small></div>
+    </div>
+
+    {% if demo.blocos %}
+    <div class="table-wrap mt-24">
+      <table class="table">
+        <caption class="sr-only">Demonstrativo do caixa Itaú por grupo e categoria</caption>
+        <thead><tr><th>Grupo / categoria</th><th class="num">Entradas</th><th class="num">Saídas</th><th class="num">Líquido</th></tr></thead>
+        <tbody>
+          {% for b in demo.blocos %}
+          <tr class="group">
+            <td><a href="{{ url_for('conciliacao.itau', bloco=b.codigo, **periodo_args) }}">{{ b.nome }}</a>
+              {% if b.revisar %}{{ ui.badge(b.revisar ~ ' para revisar', 'amber') }}{% endif %}</td>
+            <td class="num">{{ b.entradas | brl if b.entradas else '—' }}</td>
+            <td class="num">{{ b.saidas | brl if b.saidas else '—' }}</td>
+            <td class="num">{{ b.liquido | brl }}</td>
+          </tr>
+          {% for c in b.categorias %}
+          <tr class="sub">
+            <td>{{ c.nome }} <small class="muted" style="display:inline">({{ c.qtd }})</small></td>
+            <td class="num">{{ c.entradas | brl if c.entradas else '—' }}</td>
+            <td class="num">{{ c.saidas | brl if c.saidas else '—' }}</td>
+            <td class="num">{{ c.liquido | brl }}</td>
+          </tr>
+          {% endfor %}
+          {% endfor %}
+          <tr class="total"><td>Variação da conta corrente</td><td></td><td></td><td class="num">{{ demo.variacao_conta | brl }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="help mt-16">O Itaú deixa a conta corrente zerada e guarda o dinheiro na aplicação automática. O saldo disponível soma as duas,
+      por isso aplicações e resgates automáticos não mudam o saldo — só onde o dinheiro está. O repasse da Stone é o recebimento
+      das vendas no cartão (líquido de taxas, com prazo), não o faturamento do dia.</p>
+    {% endif %}
+  </details>
+</section>
+
+<section class="surface">
+  <details class="expand">
+    <summary>{{ ui.icon('chevron-right') }}Lançamentos do fluxo sem movimento no Itaú ({{ resumo.lancamentos_sem_banco }})</summary>
+    <p class="help">Podem ser de outras contas, dinheiro ou adquirentes (Stone/iFood), ou ainda não terem caído no banco.</p>
+    {% if sem_banco %}
+    <div class="table-wrap">
+      <table class="table responsive">
+        <thead><tr><th>Data</th><th>Categoria</th><th>Descrição</th><th class="num">Valor</th></tr></thead>
+        <tbody>
+          {% for l in sem_banco %}
+          <tr>
+            <td data-label="Data" class="nowrap">{{ l.data | data }}</td>
+            <td data-label="Categoria">{{ l.categoria.grupo }} · {{ l.categoria.nome }}</td>
+            <td data-label="Descrição" class="wrap">{{ l.descricao or '—' }}</td>
+            <td data-label="Valor" class="num">{{ (l.valor if l.categoria.tipo == 'entrada' else -l.valor) | brl }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <p class="muted mb-0">Nenhum lançamento pendente no período.</p>
+    {% endif %}
+  </details>
+</section>
+
+{# ═══════════════════════════ Painéis e diálogos ═══════════════════════════ #}
+
+{% call ui.dialog('dlg-revisar', 'Revisar movimento', 'drawer') %}
+  <form method="post" id="form-revisar" class="dialog-body" data-busy="Salvando…">
+    {{ filtros_ocultos() }}
+    <p class="caption mb-16"><span data-slot="data"></span> · Itaú</p>
+    <p class="strong mb-0" data-slot="nome"></p>
+    <p class="caption" data-slot="descricao"></p>
+    <div class="metric-value" data-slot="valor"></div>
+    <p class="row" id="rev-badges"></p>
+
+    {% if pode_classificar %}
+    {# quebra pronta (Stone, sócia): a tela mostra as linhas em vez de perguntar #}
+    <div id="rev-derivado" hidden>
+      {# diz ao servidor que esta gaveta editou as linhas — inclusive para zero #}
+      <input type="hidden" name="editar_linhas" id="rev-editar-linhas" value="" disabled>
+      <div class="section-top">
+        <h3 class="mb-0" data-slot="derivado-titulo"></h3>
+        <button type="button" class="btn ghost small" id="rev-itens-limpar">Desmarcar todos</button>
+      </div>
+      <p class="help">Marque as linhas do caixa que formam este crédito. O que você desmarcar volta a ficar livre para outro movimento.</p>
+      <div id="rev-itens" aria-live="polite"></div>
+      <p class="row mt-8" style="justify-content:space-between">
+        <span class="caption">Selecionado: <strong id="rev-itens-soma">R$ 0,00</strong></span>
+        <span class="caption">Diferença: <strong id="rev-itens-dif">R$ 0,00</strong></span>
+      </p>
+    </div>
+
+    <div id="rev-classificacao">
+      <div class="field">
+        <label for="rev-grupo">Categoria <span class="required" aria-hidden="true">*</span></label>
+        <select id="rev-grupo" required></select>
+      </div>
+
+      <div class="field" id="rev-linha-campo">
+        <label for="rev-linha">Subcategoria <span class="required" aria-hidden="true">*</span></label>
+        <select id="rev-linha" name="categoria_id" required></select>
+      </div>
+    </div>
+
+    {# pagamento a fornecedor: dizer QUEM é fecha o lançamento do caixa #}
+    <div class="field" id="rev-fornecedor-campo" hidden>
+      <label for="rev-fornecedor">Subcategoria (fornecedor)</label>
+      <select id="rev-fornecedor" name="fornecedor_id">
+        <option value="">Sem fornecedor definido</option>
+        {% for f in fornecedores %}<option value="{{ f.id }}">{{ f.nome }}</option>{% endfor %}
+      </select>
+      <p class="help">Liga este pagamento ao fornecedor no caixa. Com “criar regra”, os próximos pagamentos a esta contraparte já entram nele.</p>
+    </div>
+
+    <fieldset style="border:0;padding:0;margin:0 0 16px">
+      <legend class="sr-only">Alcance da classificação</legend>
+      <label class="radio-option">
+        <input type="radio" name="alcance" value="regra">
+        <span>Salvar regra para movimentos futuros<small class="help">Todo pagamento desta mesma empresa passa a entrar nesta categoria sozinho — e os que já estão no sistema são corrigidos agora.</small></span>
+      </label>
+      <label class="radio-option">
+        <input type="radio" name="alcance" value="movimento" checked>
+        <span>Classificar só este movimento<small class="help">Muda apenas esta linha. Os próximos pagamentos desta empresa continuam chegando para você decidir.</small></span>
+      </label>
+    </fieldset>
+    {% endif %}
+
+    <div id="rev-conciliacao" hidden>
+      <h3>Conciliação</h3>
+      <p class="muted">Conciliado com <span data-slot="lancamento"></span>.</p>
+    </div>
+
+    {% if current_user.pode('cadastros.editar') %}<p class="text-right mb-0" style="text-align:center"><button type="button" class="btn ghost" id="rev-novo-fornecedor">Cadastrar fornecedor</button></p>{% endif %}
+  </form>
+  {% if pode_classificar %}
+  <form method="post" id="form-desfazer" class="dialog-actions" style="justify-content:flex-start;border-top:0;padding-top:0" hidden
+        data-confirm="Desfazer a conciliação? O movimento volta para pendente.">
+    {{ filtros_ocultos() }}
+    <button type="submit" class="btn ghost">Desfazer conciliação</button>
+  </form>
+  {% endif %}
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>{{ 'Cancelar' if pode_classificar else 'Fechar' }}</button>
+    {% if pode_classificar %}<button type="submit" form="form-revisar" class="btn primary">Confirmar revisão</button>{% endif %}
+  </div>
+{% endcall %}
+
+{% if pode_classificar %}
+{# Conciliação 1 → N: um crédito do banco pode juntar vários lançamentos do fluxo
+   (repasse de cartão, por exemplo). Soma e diferença aparecem ao vivo. #}
+{% call ui.dialog('dlg-conciliar', 'Conciliar movimento', 'drawer') %}
+  <form method="post" id="form-conciliar" class="dialog-body" data-busy="Conciliando…">
+    {{ filtros_ocultos() }}
+    <p class="caption mb-16"><span data-slot="data"></span> · Itaú</p>
+    <p class="strong mb-0" data-slot="nome"></p>
+    <div class="metric-value" data-slot="valor"></div>
+    <p class="muted">Marque os lançamentos do fluxo que formam este movimento — vários lançamentos podem compor um único valor do extrato.</p>
+
+    <div class="row mb-16">
+      <button type="button" class="btn small" id="conc-sugestao" hidden>Usar combinação sugerida</button>
+      <button type="button" class="btn ghost small" id="conc-limpar">Desmarcar todos</button>
+    </div>
+
+    <div id="conc-lista" aria-live="polite"></div>
+    <p class="muted" id="conc-vazio" hidden>Nenhum lançamento livre do mesmo sentido perto desta data.</p>
+  </form>
+  <div class="dialog-actions" style="flex-direction:column;align-items:stretch;gap:12px">
+    <div class="row" style="justify-content:space-between">
+      <span class="caption">Selecionado: <strong id="conc-soma">R$ 0,00</strong></span>
+      <span class="caption">Diferença: <strong id="conc-diferenca">R$ 0,00</strong></span>
+    </div>
+    <div class="row" style="justify-content:flex-end">
+      <button type="button" class="btn" data-close>Cancelar</button>
+      <button type="submit" form="form-conciliar" class="btn primary">Confirmar conciliação</button>
+    </div>
+  </div>
+{% endcall %}
+{% endif %}
+
+{% if current_user.pode('cadastros.editar') %}
+{% call ui.dialog('dlg-fornecedor', 'Fornecedor durante classificação', 'drawer') %}
+  <form method="post" action="{{ url_for('cadastros.salvar_fornecedor') }}" id="form-fornecedor" class="dialog-body" data-busy="Salvando…">
+    {{ ui.csrf() }}
+    <input type="hidden" name="proximo" id="forn-proximo" value="">
+    <input type="hidden" name="ativo" value="1">
+    {% call ui.notice() %}<p>Ao salvar, você volta ao movimento <strong data-slot="nome"></strong> com a categoria escolhida preservada.</p>{% endcall %}
+    <p class="caption">Campos com * são obrigatórios.</p>
+    {{ ui.field('nome', 'Nome ou razão social', tipo='text', obrigatorio=True, id='forn-nome', attrs='maxlength="160" autocomplete="off"') }}
+    {{ ui.field('apelido', 'Apelido', id='forn-apelido', attrs='maxlength="160"') }}
+    {{ ui.field('observacao', 'Observações', tipo='textarea', id='forn-obs') }}
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" id="forn-cancelar">Cancelar</button>
+    <button type="submit" form="form-fornecedor" class="btn primary">Salvar e voltar</button>
+  </div>
+{% endcall %}
+{% endif %}
+
+{% call ui.dialog('dlg-lote', 'Revisar movimentos em lote') %}
+  <form method="post" action="{{ url_for('conciliacao.revisar_lote') }}" id="form-lote" class="dialog-body" data-busy="Revisando…">
+    {{ filtros_ocultos() }}
+    <p>Confirmar a revisão de <strong><span id="lote-qtd">0</span> movimento(s) selecionado(s)</strong>?</p>
+    <div class="table-wrap">
+      <table class="table"><thead><tr><th>Descrição</th><th class="num">Valor</th></tr></thead><tbody id="lote-itens"></tbody></table>
+    </div>
+    <div id="lote-ids"></div>
+    {% call ui.notice('warn') %}<p>Somente os movimentos listados serão marcados como revisados. A classificação de cada um não muda.</p>{% endcall %}
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-lote" class="btn primary">Revisar <span id="lote-qtd-botao">0</span> movimento(s)</button>
+  </div>
+{% endcall %}
+
+{% call ui.dialog('dlg-filtros', 'Filtrar movimentações', 'drawer') %}
+  <form method="get" id="form-filtros" class="dialog-body">
+    <input type="hidden" name="q" value="{{ q }}">
+    <p class="caption">Campos com * são obrigatórios.</p>
+    {{ ui.field('inicio', 'Data inicial', inicio.isoformat(), 'date', True, id='flt-inicio') }}
+    {{ ui.field('fim', 'Data final', fim.isoformat(), 'date', True, id='flt-fim') }}
+    {{ ui.field('status', 'Situação', status, 'select', opcoes=status_opcoes.items() | list, id='flt-status') }}
+    {{ ui.field('bloco', 'Bloco gerencial', bloco, 'select', opcoes=[('', 'Todos')] + (blocos.items() | list), id='flt-bloco') }}
+  </form>
+  <div class="dialog-actions">
+    <a class="btn" href="{{ url_for('conciliacao.itau') }}">Limpar</a>
+    <button type="submit" form="form-filtros" class="btn primary">Aplicar filtros</button>
+  </div>
+{% endcall %}
+
+{% if current_user.eh_consultoria %}
+{% call ui.dialog('dlg-sincronizar', 'Sincronizar extrato Itaú') %}
+  <form method="post" action="{{ url_for('conciliacao.itau_sincronizar') }}" id="form-sinc" class="dialog-body" data-busy="Sincronizando…">
+    {{ ui.csrf() }}
+    <input type="hidden" name="fim" value="{{ fim.isoformat() }}">
+    <p class="muted">Busca o extrato no Itaú a partir da data escolhida, classifica e concilia automaticamente. Movimentos já gravados são atualizados, sem duplicar.</p>
+    {{ ui.field('inicio', 'Buscar no Itaú desde', inicio.isoformat(), 'date', True, id='sinc-inicio') }}
+    {% if ultima_sync %}<p class="help">Última sincronização: {{ ultima_sync | data('%d/%m/%Y às %H:%M') }}.</p>{% endif %}
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-sinc" class="btn primary" {{ 'disabled' if not configurado }}>Sincronizar</button>
+  </div>
+{% endcall %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const dlg = document.getElementById('dlg-revisar');
+  const form = document.getElementById('form-revisar');
+  const desfazer = document.getElementById('form-desfazer');
+  const badges = document.getElementById('rev-badges');
+  let atual = null;
+
+  function slot(nome, texto) {
+    dlg.querySelectorAll('[data-slot="' + nome + '"]').forEach(el => { el.textContent = texto || ''; });
+  }
+  function badge(texto, tom) {
+    const s = document.createElement('span');
+    s.className = 'badge ' + (tom || ''); s.textContent = texto; return s;
+  }
+
+  // Blocos e linhas do caixa: o mesmo vocabulário da planilha
+  const LINHAS = {{ linhas_do_caixa | tojson }};
+  const GRUPO_COMPRAS = {{ grupo_compras | tojson }};
+  const selGrupo = document.getElementById('rev-grupo');
+  const selLinha = document.getElementById('rev-linha');
+  let tipoAtual = 'debito';
+
+  const ladoDo = tipo => (tipo === 'credito' ? 'entrada' : 'saida');
+
+  function preencher(sel, itens, valor) {
+    sel.replaceChildren(...itens.map(i => {
+      const o = document.createElement('option');
+      o.value = String(i.valor); o.textContent = i.rotulo; return o;
+    }));
+    if (valor !== undefined && valor !== null && String(valor)) sel.value = String(valor);
+  }
+
+  // categoria sem subcategoria: a linha tem o mesmo nome da categoria
+  function semSubcategoria(grupo) {
+    const lado = ladoDo(tipoAtual);
+    const linhas = LINHAS.filter(l => l.grupo === grupo && l.tipo === lado);
+    return linhas.length === 1 && linhas[0].nome === grupo;
+  }
+
+  function preencherLinhas(grupo, escolhida) {
+    if (!selLinha) return;
+    const lado = ladoDo(tipoAtual);
+    const itens = LINHAS.filter(l => l.grupo === grupo && l.tipo === lado)
+                        .map(l => ({ valor: l.id, rotulo: l.nome }));
+    if (!grupo) itens.unshift({ valor: '', rotulo: '— escolha a subcategoria —' });
+    preencher(selLinha, itens, escolhida);
+    const campoLinha = document.getElementById('rev-linha-campo');
+    // em Compras quem faz o papel de subcategoria é o fornecedor
+    if (campoLinha) campoLinha.hidden = semSubcategoria(grupo) || grupo === GRUPO_COMPRAS;
+    alternarFornecedor();
+  }
+
+  function montarSelecao(tipo, linhaId) {
+    if (!selGrupo || !selLinha) return;
+    tipoAtual = tipo || 'debito';
+    const lado = ladoDo(tipoAtual);
+    const grupos = [...new Set(LINHAS.filter(l => l.tipo === lado).map(l => l.grupo))];
+    const atualLinha = LINHAS.find(l => String(l.id) === String(linhaId) && l.tipo === lado);
+    // sem linha conhecida, nada de preencher com a primeira da lista: seria
+    // mostrar uma classificação que o movimento não tem — e salvá-la sem querer
+    const itens = grupos.map(g => ({ valor: g, rotulo: g }));
+    if (!atualLinha) itens.unshift({ valor: '', rotulo: '— escolha a categoria —' });
+    preencher(selGrupo, itens, atualLinha ? atualLinha.grupo : '');
+    preencherLinhas(selGrupo.value, atualLinha ? atualLinha.id : '');
+  }
+  if (selGrupo) selGrupo.addEventListener('change', () => preencherLinhas(selGrupo.value));
+
+  // Movimento cuja quebra em linhas veio pronta (Stone, sócia): a subcategoria
+  // não se aplica — mostramos o que já está lançado e um escape para exceções.
+  const blocoClass = document.getElementById('rev-classificacao');
+  const avisoDerivado = document.getElementById('rev-derivado');
+  const TITULO_DERIVADO = {
+    stone: 'Vendas no cartão deste repasse',
+    socia: 'Como este pagamento foi dividido',
+  };
+  const listaItens = document.getElementById('rev-itens');
+  const fieldsetAlcance = form ? form.querySelector('fieldset') : null;
+  const botaoNovoFornecedor = document.getElementById('rev-novo-fornecedor');
+
+  const moeda = v => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  function alternarClassificacao(mostrar) {
+    if (!blocoClass) return;
+    blocoClass.hidden = !mostrar;
+    // campo escondido não pode ser exigido nem enviado
+    blocoClass.querySelectorAll('select').forEach(sel => { sel.disabled = !mostrar; });
+    if (mostrar) alternarFornecedor(); else if (campoForn) campoForn.hidden = true;
+  }
+
+  const marcaLinhas = document.getElementById('rev-editar-linhas');
+  const somaItens = document.getElementById('rev-itens-soma');
+  const difItens = document.getElementById('rev-itens-dif');
+  let alvoDerivado = 0;
+
+  function totaisDosItens() {
+    if (!listaItens || !somaItens) return;
+    const marcados = [...listaItens.querySelectorAll('input[name="lancamento_ids"]:checked')];
+    const soma = marcados.reduce((t, c) => t + Number(c.dataset.valor), 0);
+    const dif = alvoDerivado - soma;
+    somaItens.textContent = moeda(soma) + ' · ' + marcados.length + ' lançamento(s)';
+    difItens.textContent = moeda(dif);
+    difItens.style.color = Math.abs(dif) < 0.005 ? 'var(--ok, #1E7F4F)' : 'var(--danger)';
+  }
+  listaItens?.addEventListener('change', totaisDosItens);
+  document.getElementById('rev-itens-limpar')?.addEventListener('click', () => {
+    listaItens.querySelectorAll('input[name="lancamento_ids"]').forEach(c => { c.checked = false; });
+    totaisDosItens();
+  });
+
+  async function carregarItens(url) {
+    listaItens.innerHTML = '<p class="muted">Carregando lançamentos…</p>';
+    const resp = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!resp.ok) {
+      listaItens.innerHTML = '<p class="muted">Não consegui carregar as linhas. Recarregue a página.</p>';
+      return;
+    }
+    const dados = await resp.json();
+    listaItens.replaceChildren(...dados.candidatos.map(c => {
+      const item = document.createElement('label');
+      item.className = 'check conc-item';
+      const cx = document.createElement('input');
+      cx.type = 'checkbox'; cx.name = 'lancamento_ids'; cx.value = c.id;
+      cx.dataset.valor = c.valor; cx.checked = !!c.ligado;
+      const nome = document.createElement('span');
+      nome.className = 'conc-nome';
+      nome.textContent = c.categoria;
+      const detalhe = document.createElement('small');
+      detalhe.className = 'caption';
+      detalhe.style.display = 'block';
+      detalhe.textContent = c.data_br + (c.descricao ? ' · ' + c.descricao : '');
+      nome.appendChild(detalhe);
+      const valor = document.createElement('span');
+      valor.className = 'num strong';
+      valor.textContent = moeda(Number(c.valor));
+      item.append(cx, nome, valor);
+      return item;
+    }));
+    if (!dados.candidatos.length) {
+      listaItens.innerHTML = '<p class="muted">Nenhuma linha do caixa perto desta data.</p>';
+    }
+    totaisDosItens();
+  }
+
+  function aplicarDerivado(d) {
+    const tipo = d.derivado || '';
+    const titulo = TITULO_DERIVADO[tipo];
+    if (avisoDerivado) avisoDerivado.hidden = !titulo;
+    if (titulo && listaItens) {
+      slot('derivado-titulo', titulo);
+      alvoDerivado = Number(d.valorNum || 0);
+      carregarItens(d.candidatos);
+      marcaLinhas.disabled = false;
+      marcaLinhas.value = '1';
+    }
+    // quebra pronta: não há categoria, alcance nem fornecedor a decidir aqui
+    if (!titulo && marcaLinhas) { marcaLinhas.disabled = true; marcaLinhas.value = ''; }
+    alternarClassificacao(!titulo);
+    if (fieldsetAlcance) fieldsetAlcance.hidden = !!titulo;
+    if (botaoNovoFornecedor) botaoNovoFornecedor.parentElement.hidden = !!titulo;
+  }
+
+  function abrirRevisao(botao, linha) {
+    const d = botao.dataset;
+    atual = botao;
+    form.action = d.action;
+    slot('data', d.data); slot('nome', d.nome); slot('valor', d.valor);
+    slot('descricao', d.descricao && d.descricao !== d.nome ? d.descricao : '');
+    const selos = [badge(d.classificacao, d.classificacaoTom)];
+    // conciliar só é assunto onde um crédito junta lançamentos de outra fonte
+    if (d.conciliacao) selos.push(badge('Conciliação: ' + d.conciliacao, d.conciliacaoTom));
+    badges.replaceChildren(...selos);
+    montarSelecao(d.tipo, linha || d.linha);
+    aplicarDerivado(d);
+    // reabre com o alcance que foi usado: se a contraparte tem regra, é "regra"
+    form.querySelectorAll('input[name=alcance]').forEach(r => {
+      r.checked = r.value === (d.alcance || 'movimento');
+    });
+    document.getElementById('rev-conciliacao').hidden = !d.lancamento;
+    slot('lancamento', d.lancamento);
+    if (desfazer) { desfazer.hidden = !d.desfazer; if (d.desfazer) desfazer.action = d.desfazer; }
+    delete form.dataset.dirty;
+    dlg._acionador = botao;
+    dlg.showModal();
+    dlg.querySelector('.dialog-head h2').setAttribute('tabindex', '-1');
+    dlg.querySelector('.dialog-head h2').focus();
+  }
+
+  // Fornecedor: aparece quando a classificação é pagamento a fornecedor
+  const campoForn = document.getElementById('rev-fornecedor-campo');
+  const selForn = document.getElementById('rev-fornecedor');
+
+  function alternarFornecedor() {
+    if (!campoForn || !selGrupo) return;
+    // entrada nunca tem fornecedor
+    campoForn.hidden = !(tipoAtual === 'debito' && selGrupo.value === GRUPO_COMPRAS);
+  }
+
+  document.querySelectorAll('[data-revisar]').forEach(b => b.addEventListener('click', () => {
+    if (selForn) selForn.value = b.dataset.fornecedor || '';
+    abrirRevisao(b);
+  }));
+
+  // Cadastrar fornecedor sem perder o contexto: troca o painel e volta depois
+  const dlgForn = document.getElementById('dlg-fornecedor');
+  document.getElementById('rev-novo-fornecedor')?.addEventListener('click', () => {
+    if (!atual) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('revisar', atual.dataset.id);
+    if (selLinha && selLinha.value) url.searchParams.set('linha', selLinha.value);
+    document.getElementById('forn-proximo').value = url.pathname + url.search + '#mov-' + atual.dataset.id;
+    dlgForn.querySelector('[data-slot="nome"]').textContent = atual.dataset.nome;
+    dlgForn._categoria = selLinha ? selLinha.value : '';
+    delete form.dataset.dirty;
+    dlg.close();
+    dlgForn._acionador = atual;
+    dlgForn.showModal();
+    document.getElementById('forn-nome').focus();
+  });
+  document.getElementById('forn-cancelar')?.addEventListener('click', () => {
+    const f = document.getElementById('form-fornecedor');
+    if (f.dataset.dirty === '1' && !confirm('Descartar alterações? Os dados preenchidos neste formulário serão perdidos.')) return;
+    f.reset(); delete f.dataset.dirty;
+    dlgForn.close();
+    if (atual) abrirRevisao(atual, dlgForn._categoria);
+  });
+
+
+  // Conciliacao 1 -> N: escolhe os lancamentos que somam o valor do movimento
+  const dlgConc = document.getElementById('dlg-conciliar');
+  if (dlgConc) {
+    const lista = document.getElementById('conc-lista');
+    const vazio = document.getElementById('conc-vazio');
+    const btnSugestao = document.getElementById('conc-sugestao');
+    const somaEl = document.getElementById('conc-soma');
+    const difEl = document.getElementById('conc-diferenca');
+    const formConc = document.getElementById('form-conciliar');
+    let alvo = 0;
+    const brl = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+    function atualizarTotais() {
+      const marcados = [...lista.querySelectorAll('input[name="lancamento_ids"]:checked')];
+      const soma = marcados.reduce((t, c) => t + Number(c.dataset.valor), 0);
+      const dif = alvo - soma;
+      somaEl.textContent = brl(soma) + ' · ' + marcados.length + ' lançamento(s)';
+      difEl.textContent = brl(dif);
+      difEl.style.color = Math.abs(dif) < 0.005 ? 'var(--ok, #1E7F4F)' : 'var(--danger)';
+    }
+
+    lista.addEventListener('change', atualizarTotais);
+    document.getElementById('conc-limpar').addEventListener('click', () => {
+      lista.querySelectorAll('input[name="lancamento_ids"]').forEach((c) => { c.checked = false; });
+      atualizarTotais();
+    });
+
+    async function abrirConciliacao(botao) {
+      alvo = Number(botao.dataset.valorNum);
+      formConc.action = botao.dataset.action;
+      formConc.querySelector('[data-slot="nome"]').textContent = botao.dataset.nome;
+      formConc.querySelector('[data-slot="data"]').textContent = botao.dataset.data;
+      formConc.querySelector('[data-slot="valor"]').textContent = botao.dataset.valor;
+      lista.innerHTML = '<p class="muted">Carregando lançamentos…</p>';
+      vazio.hidden = true;
+      btnSugestao.hidden = true;
+      dlgConc._acionador = botao;
+      dlgConc.showModal();
+
+      const resp = await fetch(botao.dataset.url, { headers: { Accept: 'application/json' } });
+      if (!resp.ok) {
+        lista.innerHTML = '<p class="muted">Não consegui carregar os lançamentos. Recarregue a página.</p>';
+        return;
+      }
+      const dados = await resp.json();
+      lista.innerHTML = '';
+      dados.candidatos.forEach((c) => {
+        const item = document.createElement('label');
+        item.className = 'check conc-item';
+        item.innerHTML =
+          '<input type="checkbox" name="lancamento_ids" value="' + c.id + '" data-valor="' + c.valor + '"' +
+          (c.ligado ? ' checked' : '') + '>' +
+          '<span class="conc-nome">' + c.categoria +
+          '<small class="caption" style="display:block">' + c.data_br +
+          (c.descricao ? ' · ' + c.descricao : '') + '</small></span>' +
+          '<span class="num strong">' + brl(Number(c.valor)) + '</span>';
+        lista.appendChild(item);
+      });
+      vazio.hidden = dados.candidatos.length > 0;
+      if (dados.sugestao.length) {
+        btnSugestao.hidden = false;
+        btnSugestao.onclick = () => {
+          lista.querySelectorAll('input[name="lancamento_ids"]').forEach((c) => {
+            c.checked = dados.sugestao.includes(Number(c.value));
+          });
+          atualizarTotais();
+        };
+      }
+      atualizarTotais();
+    }
+
+    document.querySelectorAll('[data-conciliar]').forEach((b) => b.addEventListener('click', () => abrirConciliacao(b)));
+  }
+
+  // Seleção explícita para o lote (somente os ids marcados)
+  const btnLote = document.getElementById('btn-lote');
+  const caixas = Array.from(document.querySelectorAll('.sel-mov'));
+  function selecionados() { return caixas.filter(c => c.checked); }
+  function atualizarLote() {
+    if (!btnLote) return;
+    const n = selecionados().length;
+    btnLote.disabled = n === 0;
+    btnLote.querySelector('span').textContent = n ? 'Revisar ' + n + ' selecionado(s)' : 'Revisar selecionados';
+  }
+  caixas.forEach(c => c.addEventListener('change', atualizarLote));
+  const todos = document.getElementById('sel-todos');
+  if (todos) todos.addEventListener('change', () => { caixas.forEach(c => { if (!c.disabled) c.checked = todos.checked; }); atualizarLote(); });
+  if (btnLote) btnLote.addEventListener('click', () => {
+    const itens = selecionados();
+    const corpo = document.getElementById('lote-itens');
+    const ids = document.getElementById('lote-ids');
+    corpo.replaceChildren(); ids.replaceChildren();
+    itens.forEach(c => {
+      const tr = document.createElement('tr');
+      const td1 = document.createElement('td'); td1.textContent = c.dataset.nome;
+      const td2 = document.createElement('td'); td2.className = 'num'; td2.textContent = c.dataset.valor;
+      tr.append(td1, td2); corpo.append(tr);
+      const h = document.createElement('input'); h.type = 'hidden'; h.name = 'mov_ids'; h.value = c.value; ids.append(h);
+    });
+    document.getElementById('lote-qtd').textContent = itens.length;
+    document.getElementById('lote-qtd-botao').textContent = itens.length;
+  }, true);
+  atualizarLote();
+
+  // Retorno do cadastro de fornecedor (ou erro de validação): reabre o movimento
+  {% if abrir_revisao %}
+  const retorno = document.querySelector('[data-revisar][data-id="{{ abrir_revisao }}"]');
+  if (retorno) {
+    abrirRevisao(retorno, {{ linha_retorno | tojson }});
+    {% if fornecedor_retorno %}
+    if (selForn) selForn.value = "{{ fornecedor_retorno }}";   // fornecedor recém-cadastrado
+    {% endif %}
+    alternarFornecedor();
+  }
+  {% endif %}
+})();
+</script>
+{% endblock %}

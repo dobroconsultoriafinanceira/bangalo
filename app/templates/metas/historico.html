@@ -1,58 +1,108 @@
 {% extends "base.html" %}
-{% block titulo %}Faturamento Histórico{% endblock %}
+{% block titulo %}Histórico anual{% endblock %}
 {% block conteudo %}
-<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-  <div>
-    <h1 class="text-2xl font-semibold">Faturamento Histórico</h1>
-    <p class="text-sm text-gray-500">Base das metas (média histórica do mês)</p>
-  </div>
-  <a href="{{ url_for('metas.painel') }}" class="px-3 py-1.5 rounded-lg border border-borda bg-white text-sm">‹ Painel de metas</a>
-</div>
+{% set ultimo = anos[-1] if anos else none %}
+{% set anterior = anos[-2] if anos | length > 1 else none %}
+{% set meses_ultimo = historico.get(ultimo, {}).keys() | list if ultimo else [] %}
+{% set total_ultimo = historico.get(ultimo, {}).values() | sum if ultimo else 0 %}
+{% set comp = namespace(v=0) %}
+{% if anterior %}{% for m in meses_ultimo %}{% set comp.v = comp.v + (historico[anterior].get(m) or 0) %}{% endfor %}{% endif %}
 
-<form method="post" class="bg-white rounded-2xl border border-borda p-4 mb-6 flex flex-wrap items-end gap-3 text-sm">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <div>
-    <label class="block text-xs text-gray-500 mb-1">Ano</label>
-    <input type="number" name="ano" value="2026" class="w-24 rounded-lg border border-borda px-2 py-1.5">
-  </div>
-  <div>
-    <label class="block text-xs text-gray-500 mb-1">Mês</label>
-    <select name="mes" class="rounded-lg border border-borda px-2 py-1.5 bg-white">
-      {% for m in range(1, 13) %}<option value="{{ m }}">{{ m | nome_mes }}</option>{% endfor %}
-    </select>
-  </div>
-  <div>
-    <label class="block text-xs text-gray-500 mb-1">Valor (R$)</label>
-    <input name="valor" placeholder="0,00" inputmode="decimal" class="w-36 rounded-lg border border-borda px-2 py-1.5">
-  </div>
-  <button class="px-4 py-1.5 rounded-lg bg-bangalo-500 text-white">Salvar valor</button>
-</form>
+{% call ui.page_header('Histórico anual', 'Faturamento mensal de cada ano: base da média histórica das metas.') %}
+  {% if current_user.pode('metas.editar') %}<button type="button" class="btn primary" data-open="dlg-historico" data-reset data-titulo="Editar histórico">{{ ui.icon('pencil') }}Editar histórico</button>{% endif %}
+{% endcall %}
 
-<div class="bg-white rounded-2xl border border-borda overflow-x-auto">
-  <table class="min-w-full text-sm">
-    <thead>
-      <tr class="bg-creme border-b border-borda text-left">
-        <th class="px-4 py-2 font-semibold">Mês</th>
-        {% for a in anos %}<th class="px-4 py-2 font-semibold num">{{ a }}</th>{% endfor %}
-      </tr>
-    </thead>
-    <tbody>
-      {% for mes in range(1, 13) %}
-      <tr class="border-b border-borda/60">
-        <td class="px-4 py-2 font-medium">{{ mes | nome_mes(true) }}</td>
-        {% for a in anos %}
-          <td class="px-4 py-2 num">{{ historico.get(a, {}).get(mes) | brl(false) if historico.get(a, {}).get(mes) else '—' }}</td>
+<section class="metrics" aria-label="Resumo">
+  {{ ui.metric('Acumulado em ' ~ ultimo if ultimo else 'Acumulado', total_ultimo | brl if ultimo else None,
+               ((meses_ultimo | min | nome_mes) ~ ' a ' ~ (meses_ultimo | max | nome_mes | lower)) if meses_ultimo else 'Sem dados') }}
+  {% if anterior and comp.v %}
+    {% set var = (total_ultimo - comp.v) / comp.v * 100 %}
+    {{ ui.metric('Variação', ('%+.1f' | format(var | float)) | replace('.', ',') ~ '%', 'Mesmos meses de ' ~ anterior, 'bad' if var < 0 else '') }}
+  {% else %}
+    {{ ui.metric('Variação', None, 'Sem ano anterior comparável') }}
+  {% endif %}
+  {{ ui.metric('Anos na base', anos | length, (anos[0] ~ '–' ~ ultimo) if anos else 'Nenhum ano cadastrado') }}
+</section>
+
+{% if anos %}
+<section class="surface" aria-labelledby="t-comp">
+  <h2 id="t-comp">Comparação anual</h2>
+  <div class="legend" aria-hidden="true"><span class="l-bar">{{ ultimo }}</span>{% if anterior %}<span>{{ anterior }}</span>{% endif %}</div>
+  <div class="chart-box"><canvas id="grafico-historico" role="img" aria-label="Faturamento mensal de {{ ultimo }}{% if anterior %} comparado a {{ anterior }}{% endif %}"></canvas></div>
+  <p class="chart-note">Meses ausentes aparecem sem barra (não como zero). A tabela abaixo traz os mesmos valores.</p>
+</section>
+{% endif %}
+
+<section class="surface" aria-labelledby="t-hist">
+  <h2 id="t-hist">Mês a mês</h2>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Mês</th>{% for a in anos %}<th class="num">{{ a }}</th>{% endfor %}<th class="actions">Ações</th></tr></thead>
+      <tbody>
+        {% for mes in range(1, 13) %}
+        <tr>
+          <td>{{ mes | nome_mes(true) }}</td>
+          {% for a in anos %}{% set v = historico.get(a, {}).get(mes) %}<td class="num">{{ v | brl if v is not none else '—' }}</td>{% endfor %}
+          <td class="actions">
+            {% if current_user.pode('metas.editar') %}<button type="button" class="btn small" data-open="dlg-historico" data-titulo="Editar {{ mes | nome_mes | lower }}"
+                    data-fill-mes="{{ mes }}" data-fill-ano="{{ ultimo or '' }}"
+                    data-fill-valor="{{ (historico.get(ultimo, {}).get(mes) | brl(false)) if ultimo and historico.get(ultimo, {}).get(mes) is not none else '' }}">Editar</button>{% endif %}
+          </td>
+        </tr>
         {% endfor %}
-      </tr>
-      {% endfor %}
-      <tr class="bg-creme font-semibold">
-        <td class="px-4 py-2">TOTAL</td>
-        {% for a in anos %}
-          {% set soma = historico.get(a, {}).values() | sum %}
-          <td class="px-4 py-2 num">{{ soma | brl(false) }}</td>
-        {% endfor %}
-      </tr>
-    </tbody>
-  </table>
-</div>
+        <tr class="total"><td>Total</td>{% for a in anos %}<td class="num">{{ historico.get(a, {}).values() | sum | brl }}</td>{% endfor %}<td></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% if current_user.pode('metas.editar') %}
+{% call ui.dialog('dlg-historico', 'Editar histórico') %}
+  <form method="post" action="{{ url_for('metas.salvar_historico') }}" id="form-historico" class="dialog-body" data-busy="Salvando…">
+    {{ ui.csrf() }}
+    <p class="muted">Grava ou substitui o faturamento de um mês. Alterar o histórico muda a média usada nas metas.</p>
+    <div class="form-grid">
+      {{ ui.field('ano', 'Ano', ultimo or '', 'number', True, id='hi-ano', attrs='min="2000" max="2100"') }}
+      <div class="field">
+        <label for="hi-mes">Mês <span class="required" aria-hidden="true">*</span></label>
+        <select id="hi-mes" name="mes" required>{% for m in range(1, 13) %}<option value="{{ m }}">{{ m | nome_mes }}</option>{% endfor %}</select>
+      </div>
+    </div>
+    {{ ui.field('valor', 'Faturamento do mês (R$)', '', 'text', True, id='hi-valor', attrs='inputmode="decimal" placeholder="0,00" autocomplete="off"') }}
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-historico" class="btn primary">Salvar valor</button>
+  </div>
+{% endcall %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if anos %}
+{% set ultimo = anos[-1] %}{% set anterior = anos[-2] if anos | length > 1 else none %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/graficos.js') }}"></script>
+<script>
+BangaloCharts.defaults();
+(function () {
+  const C = BangaloCharts.COR;
+  const meses = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  const hist = {{ historico | tojson }};
+  const serie = ano => meses.map((_, i) => { const v = (hist[ano] || {})[i + 1]; return v == null ? null : Number(v); });
+  const datasets = [{ type: 'bar', label: '{{ ultimo }}', data: serie('{{ ultimo }}'), backgroundColor: C.realizado, borderRadius: 4, maxBarThickness: 28 }];
+  {% if anterior %}
+  datasets.push({ type: 'line', label: '{{ anterior }}', data: serie('{{ anterior }}'), borderColor: C.meta, borderDash: [5, 5], borderWidth: 2.5, pointRadius: 2, spanGaps: false });
+  {% endif %}
+  new Chart(document.getElementById('grafico-historico'), {
+    data: { labels: meses, datasets },
+    options: { responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false }, tooltip: { backgroundColor: '#fff', titleColor: C.tinta, bodyColor: C.tinta, borderColor: C.borda, borderWidth: 1,
+        callbacks: { label: c => ' ' + c.dataset.label + ': ' + BangaloCharts.brl(c.raw) } } },
+      scales: { x: { grid: { display: false }, border: { display: false } },
+                y: { grid: { color: C.grade }, border: { display: false }, beginAtZero: true, ticks: { maxTicksLimit: 4, callback: v => BangaloCharts.brlCompacto(v) } } } },
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

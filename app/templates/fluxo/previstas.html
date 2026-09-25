@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block titulo %}Despesas previstas{% endblock %}
+{% block conteudo %}
+{% set pode_editar = current_user.pode('caixa.editar') %}
+{% call ui.page_header('Despesas previstas', 'O que já está combinado e ainda não saiu da conta. Entra na projeção do caixa e sai sozinho quando o pagamento cai no extrato.') %}
+  {% if pode_editar %}
+    <button type="button" class="btn primary" data-open="dlg-prevista" data-reset data-titulo="Nova despesa prevista">{{ ui.icon('plus') }}Despesa prevista</button>
+  {% endif %}
+{% endcall %}
+
+{{ ui.tabs([
+  (url_for('fluxo_caixa.visao_mensal_view'), 'Resumo', False),
+  (url_for('fluxo_caixa.visao_mensal_view', aba='grade'), 'Grade mensal', False),
+  (url_for('fluxo_caixa.lancamentos'), 'Lançamentos', False),
+  (url_for('fluxo_caixa.previstas'), 'Previstas', True),
+], 'Seções do caixa') }}
+
+{% if avisos %}
+  {% call ui.notice('warn') %}
+    <p><strong>{{ avisos | length }} despesa(s) baixada(s) automaticamente</strong> — o pagamento apareceu no extrato do Itaú:</p>
+    <ul class="details-list">
+      {% for a in avisos %}
+        <li><span>{{ a.descricao or (a.fornecedor.nome if a.fornecedor else 'Pagamento') }} · previsto para {{ a.data_prevista | data }}</span>
+          <span class="num strong">{{ a.valor | brl }}</span></li>
+      {% endfor %}
+    </ul>
+    {% if pode_editar %}
+    <form method="post" action="{{ url_for('fluxo_caixa.avisos_vistos') }}" class="mt-16">
+      {{ ui.csrf() }}<button type="submit" class="btn small">Conferi, pode limpar o aviso</button>
+    </form>
+    {% endif %}
+  {% endcall %}
+{% endif %}
+
+<section class="metrics two" aria-label="Resumo das previsões">
+  {{ ui.metric('Em aberto', total_aberto | brl, 'Pagamentos combinados ainda não debitados',
+               fonte='Fonte: cadastro da equipe — o Itaú não informa agendamentos') }}
+  {{ ui.metric('Na lista', itens | length, {'prevista': 'Em aberto', 'baixada': 'Já pagas', 'cancelada': 'Canceladas'}.get(situacao, 'Todas')) }}
+</section>
+
+<div class="toolbar">
+  {% for chave, rotulo in [('prevista', 'Em aberto'), ('baixada', 'Pagas'), ('cancelada', 'Canceladas')] %}
+    <a class="btn {{ 'active' if situacao == chave }}" href="{{ url_for('fluxo_caixa.previstas', situacao=chave) }}">{{ rotulo }}</a>
+  {% endfor %}
+</div>
+
+<section class="surface" aria-labelledby="t-prev">
+  <h2 id="t-prev" class="sr-only">Despesas previstas</h2>
+  {% if itens %}
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Data prevista</th><th>Fornecedor / descrição</th><th>Categoria</th><th class="num">Valor</th><th>Situação</th><th class="actions">Ações</th></tr></thead>
+      <tbody>
+        {% for d in itens %}
+        <tr>
+          <td data-label="Data prevista" class="nowrap">{{ d.data_prevista | data }}</td>
+          <td data-label="Fornecedor" class="wrap strong">{{ d.fornecedor.nome if d.fornecedor else (d.descricao or '—') }}
+            {% if d.fornecedor and d.descricao %}<small>{{ d.descricao }}</small>{% endif %}</td>
+          <td data-label="Categoria" class="wrap">{{ d.categoria.nome }}</td>
+          <td data-label="Valor" class="num">{{ d.valor | brl }}</td>
+          <td data-label="Situação">
+            {% if d.situacao == 'baixada' %}
+              {{ ui.badge('Paga' ~ (' (automático)' if d.baixa_automatica else ''), 'green') }}
+            {% elif d.situacao == 'cancelada' %}{{ ui.badge('Cancelada') }}
+            {% elif d.atrasada %}{{ ui.badge('Venceu e não saiu', 'red') }}
+            {% else %}{{ ui.badge('Prevista', 'amber') }}{% endif %}
+          </td>
+          <td data-label="Ações" class="actions">
+            {% if pode_editar and d.em_aberto %}
+              <button type="button" class="btn small" data-open="dlg-prevista" data-titulo="Editar despesa prevista"
+                      data-fill-id="{{ d.id }}" data-fill-data-prevista="{{ d.data_prevista.isoformat() }}"
+                      data-fill-categoria-id="{{ d.categoria_id }}" data-fill-fornecedor-id="{{ d.fornecedor_id or '' }}"
+                      data-fill-descricao="{{ d.descricao or '' }}"
+                      data-fill-valor="{{ ('%.2f' | format(d.valor)) | replace('.', ',') }}">Editar</button>
+              <form method="post" action="{{ url_for('fluxo_caixa.baixar_prevista', prev_id=d.id) }}"
+                    data-confirm="Marcar como paga? Ela sai da projeção do caixa.">
+                {{ ui.csrf() }}<button type="submit" class="btn ghost small">Já foi paga</button>
+              </form>
+              <form method="post" action="{{ url_for('fluxo_caixa.cancelar_prevista', prev_id=d.id) }}"
+                    data-confirm="Cancelar esta despesa prevista?">
+                {{ ui.csrf() }}<button type="submit" class="btn ghost small" style="color:var(--danger)">Cancelar</button>
+              </form>
+            {% elif d.movimento %}
+              <span class="caption">Pago em {{ d.movimento.data | data }}</span>
+            {% else %}<span class="caption">—</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="table-meta"><span>As despesas em aberto entram na projeção do caixa na data prevista.</span></div>
+  {% else %}
+    {% call ui.empty('Nada previsto aqui', 'Cadastre os pagamentos já combinados (fornecedores, colaboradores, impostos) para a projeção do caixa ficar completa.', 'calendar') %}
+      {% if pode_editar %}<button type="button" class="btn primary" data-open="dlg-prevista" data-reset>Cadastrar despesa prevista</button>{% endif %}
+    {% endcall %}
+  {% endif %}
+</section>
+
+{% if pode_editar %}
+{% call ui.dialog('dlg-prevista', 'Nova despesa prevista', 'drawer') %}
+  <form method="post" action="{{ url_for('fluxo_caixa.salvar_prevista') }}" id="form-prevista" class="dialog-body" data-busy="Salvando…">
+    {{ ui.csrf() }}<input type="hidden" name="id" value="">
+    <p class="caption">Campos com * são obrigatórios.</p>
+    {{ ui.field('data_prevista', 'Data prevista', hoje.isoformat(), 'date', True, id='pv-data') }}
+    <div class="field">
+      <label for="pv-categoria">Categoria <span class="required" aria-hidden="true">*</span></label>
+      <select id="pv-categoria" name="categoria_id" required>
+        {% for c in categorias %}<option value="{{ c.id }}">{{ c.grupo }} · {{ c.nome }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="pv-fornecedor">Fornecedor</label>
+      <select id="pv-fornecedor" name="fornecedor_id">
+        <option value="">Sem fornecedor</option>
+        {% for f in fornecedores %}<option value="{{ f.id }}">{{ f.nome }}</option>{% endfor %}
+      </select>
+      <p class="help">Com fornecedor, a baixa automática fica mais segura: o sistema confere valor, data e quem recebeu.</p>
+    </div>
+    {{ ui.field('valor', 'Valor (R$)', '', 'text', True, id='pv-valor', attrs='inputmode="decimal" autocomplete="off"') }}
+    {{ ui.field('descricao', 'Descrição', '', 'text', False, id='pv-descricao', attrs='maxlength="255"') }}
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-prevista" class="btn primary">Salvar</button>
+  </div>
+{% endcall %}
+{% endif %}
+{% endblock %}

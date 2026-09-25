@@ -6,6 +6,8 @@ Ex. JAN/2026: (465.296,65 × 0,60) + (360.926,02 × 0,40) = 423.548,40
 
 Metas diárias: a meta do mês é rateada pelos dias abertos usando pesos por
 dia da semana (Ter/Qua 1,0 · Qui/Sex/Dom 1,4 · Sáb 1,6 · Seg fechado).
+Feriado na segunda em que o restaurante abre (a folga vai para outro dia)
+entra no rateio com o peso de terça/quarta.
 Ex. JUL/2026 (soma de pesos 35): Qua = 400.471,21 × 1/35 = 11.442,03 ✔.
 """
 import calendar
@@ -107,18 +109,46 @@ def tabela_anual(
     return linhas
 
 
-def metas_diarias(ano: int, mes: int, meta_mes: Decimal, p: Premissas, dias_fechados_extra: set[date] | None = None) -> dict[date, Decimal]:
-    """Rateia a meta do mês pelos dias abertos conforme pesos de dia da semana."""
+def metas_diarias(ano: int, mes: int, meta_mes: Decimal, p: Premissas,
+                  dias_fechados_extra: set[date] | None = None,
+                  dias_abertos_extra: set[date] | None = None) -> dict[date, Decimal]:
+    """Rateia a meta do mês pelos dias abertos conforme pesos de dia da semana.
+
+    `dias_abertos_extra`: segundas marcadas como abertas (feriado com folga
+    trocada) — entram no rateio com o peso de terça/quarta.
+    """
     fechados = dias_fechados_extra or set()
+    abertos = dias_abertos_extra or set()
     dias = [
         date(ano, mes, d)
         for d in range(1, calendar.monthrange(ano, mes)[1] + 1)
     ]
-    pesos = {d: (Decimal("0") if d in fechados else p.peso_do_dia(d)) for d in dias}
+
+    def peso(d: date) -> Decimal:
+        if d in fechados:
+            return Decimal("0")
+        if d in abertos and p.peso_do_dia(d) == 0:
+            return p.peso_ter_qua
+        return p.peso_do_dia(d)
+
+    pesos = {d: peso(d) for d in dias}
     soma = sum(pesos.values(), Decimal("0"))
     if soma == 0:
         return {d: Decimal("0") for d in dias}
-    return {d: (meta_mes * pesos[d] / soma).quantize(CENTAVOS) for d in dias}
+    # arredondar dia a dia deixa uma sobra de centavos (o rateio exato tem
+    # dízima). Ela é devolvida aos dias que mais perderam no arredondamento,
+    # para a soma das partes fechar com a meta do mês — o número que a equipe
+    # acompanha no topo da tela.
+    exatos = {d: meta_mes * pesos[d] / soma for d in dias}
+    valores = {d: exatos[d].quantize(CENTAVOS) for d in dias}
+    sobra = (meta_mes - sum(valores.values(), Decimal("0"))).quantize(CENTAVOS)
+    if sobra:
+        passo = CENTAVOS if sobra > 0 else -CENTAVOS
+        candidatos = sorted((d for d in dias if pesos[d]),
+                            key=lambda d: exatos[d] - valores[d], reverse=sobra > 0)
+        for i in range(int(abs(sobra) / CENTAVOS)):
+            valores[candidatos[i % len(candidatos)]] += passo
+    return valores
 
 
 def meta_quinzena(meta_mes: Decimal | None) -> Decimal | None:

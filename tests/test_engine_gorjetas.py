@@ -115,3 +115,42 @@ def test_setor_vazio_redistribui():
     # nada retido: soma dos líquidos == total líquido
     assert resultado.total_a_pagar == resultado.total_liquido
     assert resultado.redistribuido > 0
+
+
+def test_divisor_do_extra_conta_quem_esta_de_ferias():
+    """1ª Q Agosto/26: 8 presentes (16 pts) + Antonio de férias (2) + extra (2) = 20."""
+    from datetime import date as _d
+
+    dias = [_d(2026, 8, d) for d in range(1, 16)]
+    equipe = [
+        g.ColaboradorRateio(id=i, nome=f"G{i}", setor="Salão", funcao="Garçom", registro="",
+                            pontos=Decimal("2"), presencas=set(dias))
+        for i in range(1, 9)
+    ]
+    ferias = g.ColaboradorRateio(id=9, nome="Antonio", setor="Salão", funcao="Garçom", registro="",
+                                 pontos=Decimal("2"), presencas=set(), em_ferias=True)
+    extra = g.ExtraRateio(data=_d(2026, 8, 6), setor="Salão", turno="Noite", pontos=Decimal("2"),
+                          comissao_turno=Decimal("1736.16"), pago_pelo_restaurante=Decimal("150"))
+    resultados, descontos = g._calcular_extras(
+        [extra], Decimal("0.8"), {"Salão": Decimal("0.73")}, equipe + [ferias])
+
+    # 1736,16 × 0,8 × 0,73 × 2 / 20 = 101,39 (com divisor 18 daria 112,66)
+    assert resultados[0].devido_pelo_rateio == Decimal("101.39")
+    assert resultados[0].parte_restaurante == Decimal("48.61")
+    # o reposto é dividido só entre os presentes (16 pontos), não entre 18
+    assert descontos[1] == (Decimal("101.39") / Decimal("16")).quantize(Decimal("0.01")) * Decimal("2")
+    assert 9 not in descontos      # quem está de férias não paga o extra
+
+
+def test_extra_sem_ninguem_de_ferias_mantem_o_divisor_antigo():
+    from datetime import date as _d
+
+    equipe = [
+        g.ColaboradorRateio(id=i, nome=f"G{i}", setor="Salão", funcao="Garçom", registro="",
+                            pontos=Decimal("2"), presencas={_d(2026, 8, 6)})
+        for i in range(1, 9)
+    ]
+    extra = g.ExtraRateio(data=_d(2026, 8, 6), setor="Salão", turno="Noite", pontos=Decimal("2"),
+                          comissao_turno=Decimal("1736.16"), pago_pelo_restaurante=Decimal("150"))
+    resultados, _ = g._calcular_extras([extra], Decimal("0.8"), {"Salão": Decimal("0.73")}, equipe)
+    assert resultados[0].devido_pelo_rateio == Decimal("112.66")

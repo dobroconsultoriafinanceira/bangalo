@@ -81,27 +81,122 @@ def registrar_cli(app):
             click.echo("  " + linha)
         click.echo("OK" if rel.get("ok") else "Não sincronizado.")
 
-    @app.cli.command("itau-sincronizar")
-    @click.argument("inicio")  # AAAA-MM-DD
-    @click.argument("fim")     # AAAA-MM-DD
-    def itau_sincronizar(inicio, fim):
-        """Sincroniza extrato Itaú do período (exige credenciais/certificado).
+    @app.cli.command("itau-certificado")
+    @click.option("--ou", prompt="Site ou app (OU)", default="bangalo",
+                  help="Identificador do site/app, sem caracteres especiais.")
+    @click.option("--cidade", prompt="Cidade", help="Cidade, sem acentos.")
+    @click.option("--uf", prompt="UF (sigla)", help="Estado, ex.: SP.")
+    @click.option("--forcar", is_flag=True, help="Renova mesmo se já houver certificado.")
+    @click.option("--token", prompt="Token temporário do Devportal (vale 5 min)",
+                  hide_input=True, help="Token temporário gerado junto com as credenciais.")
+    def itau_certificado(ou, cidade, uf, forcar, token):
+        """Gera chave + CSR e obtém o certificado dinâmico do Itaú (etapa 2).
 
-        Scaffold: a estrutura está pronta; a chamada real é habilitada quando
-        os certificados mTLS e client_id/secret estiverem no .env.
+        Gere o token temporário no Devportal logo antes de rodar: ele vale 5 min.
+        Arquivos gravados em ITAU_CERT_DIR (padrão instance/itau, fora do git).
+        """
+        from app.importers.itau_adapter import ItauClient, ItauConfig, gerar_chave_e_csr
+
+        cfg = ItauConfig.from_app(app)
+        if not cfg.client_id:
+            raise click.ClickException("Preencha ITAU_CLIENT_ID no .env antes (gerado no Devportal).")
+        cert, chave = Path(cfg.cert_path), Path(cfg.key_path)
+        if cert.exists() and chave.exists() and not forcar:
+            raise click.ClickException(
+                f"Já existe certificado em {cert}. Use --forcar para renovar."
+            )
+
+        chave_pem, csr_pem = gerar_chave_e_csr(cfg.client_id, ou, cidade, uf)
+        if len(csr_pem.decode().strip().splitlines()) <= 15:
+            click.echo("  Aviso: CSR com 15 linhas ou menos (o Itaú pede mais de 15).")
+
+        secret, cert_pem = ItauClient(cfg).solicitar_certificado(token, csr_pem)
+
+        # só grava depois do sucesso — não sobrescreve um certificado válido à toa
+        cert.parent.mkdir(parents=True, exist_ok=True)
+        chave.write_bytes(chave_pem)
+        chave.chmod(0o600)
+        chave.with_suffix(".csr").write_bytes(csr_pem)
+        cert.write_text(cert_pem, encoding="utf-8")
+        click.echo(f"  Certificado: {cert}")
+        click.echo(f"  Chave privada: {chave}")
+        if secret:
+            arq_secret = cert.parent / "client_secret.txt"
+            arq_secret.write_text(secret + "\n", encoding="utf-8")
+            arq_secret.chmod(0o600)
+            click.echo(f"  Client secret retornado ({secret[:4]}…) salvo em {arq_secret}")
+            click.echo("  -> copie para ITAU_CLIENT_SECRET no .env e apague o arquivo.")
+        click.echo("Certificado dinâmico emitido (validade de 1 ano).")
+
+    @app.cli.command("itau-testar")
+    @click.option("--conta", help="agência-conta-DAC; padrão: todas de ITAU_CONTAS.")
+    @click.option("--desde", help="AAAA-MM-DD; padrão: 7 dias atrás.")
+    def itau_testar(conta, desde):
+        """Token + 1ª página do extrato e saldo, gravando o JSON bruto (etapas 3-4)."""
+        import json
+        from datetime import date, datetime, timedelta
+
+        from app.importers.itau_adapter import (
+            ItauClient, ItauConfig, ItauErroAPI, normalizar_conta, normalizar_extrato,
+            normalizar_saldo,
+        )
+
+        cfg = ItauConfig.from_app(app)
+        contas = [conta] if conta else cfg.contas
+        if not contas:
+            raise click.ClickException("Informe --conta ou preencha ITAU_CONTAS no .env.")
+        inicio = date.fromisoformat(desde) if desde else date.today() - timedelta(days=7)
+        client = ItauClient(cfg)
+        try:
+            client.obter_token()
+            click.echo(f"  Token OK ({cfg.ambiente}).")
+            for c in contas:
+                conta_id = normalizar_conta(c)
+                bruto = client.extrato_bruto(conta_id, inicio)
+                pasta = Path(cfg.cert_path).parent / "respostas"
+                pasta.mkdir(parents=True, exist_ok=True)
+                arq = pasta / f"extrato_{conta_id}_{datetime.now():%Y%m%d_%H%M%S}.json"
+                arq.write_text(json.dumps(bruto, ensure_ascii=False, indent=2), encoding="utf-8")
+                txns = normalizar_extrato(bruto, conta=conta_id)
+                saldo = normalizar_saldo(bruto, conta=conta_id)
+                pag = bruto.get("pagination") or {}
+                click.echo(f"  conta {conta_id}: {pag.get('total_elements')} lançamentos desde "
+                           f"{inicio} ({pag.get('total_pages')} páginas); 1ª página: {len(txns)} reconhecidos")
+                click.echo(f"  saldo disponível R$ {saldo.saldo} | bloqueado R$ {saldo.saldo_bloqueado} "
+                           f"| aplic. automática R$ {saldo.saldo_aplicacao_automatica}")
+                for t in txns[:5]:
+                    click.echo(f"    {t.data} {t.tipo:7} {t.valor:>12} {t.descricao[:40]}")
+                click.echo(f"  JSON bruto: {arq}")
+        except ItauErroAPI as exc:
+            click.echo(f"  {exc}")
+            if exc.status in (401, 403):
+                click.echo("  Dica: credenciais/escopos são liberados em até 2 dias úteis; "
+                           "confira também se o certificado é o do mesmo client_id.")
+        except (RuntimeError, ValueError) as exc:
+            raise click.ClickException(str(exc))
+
+    @app.cli.command("itau-sincronizar")
+    @click.argument("inicio")                  # AAAA-MM-DD
+    @click.argument("fim", required=False)     # AAAA-MM-DD (padrão: hoje)
+    def itau_sincronizar(inicio, fim):
+        """Grava o extrato Itaú desde INICIO e concilia com o fluxo.
+
+        Ex.: flask itau-sincronizar 2026-09-01
         """
         from datetime import date
 
-        from app.importers.itau_adapter import ItauClient, ItauConfig
+        from app.extensions import db
+        from app.services import itau_sync
 
-        cfg = ItauConfig.from_app(app)
-        if not cfg.configurada:
-            click.echo("Credenciais Itaú ausentes — configure ITAU_* no .env (ver README).")
-            return
-        client = ItauClient(cfg)
         try:
-            for conta in cfg.contas or [""]:
-                txns = client.extrato(conta, date.fromisoformat(inicio), date.fromisoformat(fim))
-                click.echo(f"  conta {conta}: {len(txns)} transações")
-        except (RuntimeError, NotImplementedError) as exc:
-            click.echo(f"  {exc}")
+            rel = itau_sync.sincronizar(
+                date.fromisoformat(inicio), date.fromisoformat(fim) if fim else None
+            )
+        except (RuntimeError, ValueError) as exc:
+            db.session.rollback()
+            raise click.ClickException(str(exc))
+        db.session.commit()
+        for conta, info in rel["contas"].items():
+            click.echo(f"  conta {conta}: {info}")
+        click.echo(f"  conciliação: {rel['conciliacao']}")
+        click.echo("Sincronização Itaú concluída.")

@@ -1,71 +1,58 @@
 {% extends "base.html" %}
-{% block titulo %}Gorjetas{% endblock %}
+{% block titulo %}Quinzenas{% endblock %}
 {% block conteudo %}
-<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-  <div>
-    <h1 class="text-2xl font-semibold">Gorjetas / Comissões</h1>
-    <p class="text-sm text-gray-500">Quinzenas de rateio · Cozinha, Salão e Caixa</p>
-  </div>
-</div>
+{% call ui.page_header('Quinzenas', 'Abrir a quinzena certa e distinguir aberta de fechada.') %}
+  {% if current_user.pode('gorjetas.editar') %}<button type="button" class="btn primary" data-open="dlg-nova">{{ ui.icon('plus') }}Criar quinzena</button>{% endif %}
+{% endcall %}
 
-<!-- Nova quinzena -->
-<form method="post" action="{{ url_for('gorjetas.criar_periodo') }}"
-      class="bg-white rounded-2xl border border-borda p-4 mb-6 flex flex-wrap items-end gap-3 text-sm">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <div>
-    <label class="block text-xs text-gray-500 mb-1" for="nq-quinzena">Quinzena</label>
-    <select id="nq-quinzena" name="ordem_quinzena" class="rounded-lg border border-borda px-2 py-1.5 bg-white">
-      <option value="1">1ª (dias 1–15)</option>
-      <option value="2">2ª (dia 16 ao fim)</option>
-    </select>
+<section class="surface" aria-labelledby="t-quinzenas">
+  <h2 id="t-quinzenas" class="sr-only">Quinzenas de gorjeta</h2>
+  {% if periodos %}
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Quinzena</th><th>Período</th><th>Situação</th><th class="num">Comissão bruta</th><th class="num">Total</th><th class="actions">Ações</th></tr></thead>
+      <tbody>
+        {% for p in periodos %}
+        <tr>
+          <td data-label="Quinzena"><a class="row-link" href="{{ url_for('gorjetas.detalhe', periodo_id=p.id) }}">{{ p.referencia }}</a></td>
+          <td data-label="Período">{{ p.data_inicio | data('%d') }} a {{ p.data_fim | data('%d/%m') }}</td>
+          <td data-label="Situação">{{ ui.badge('Fechada', 'green') if p.fechado else ui.badge('Aberta', 'orange') }}</td>
+          <td data-label="Comissão bruta" class="num">{{ p.comissao_bruta | brl }}</td>
+          <td data-label="Total" class="num">{{ totais[p.id] | brl if p.id in totais else '—' }}</td>
+          <td data-label="Ações" class="actions"><a class="btn small" href="{{ url_for('gorjetas.detalhe', periodo_id=p.id) }}">{{ 'Consultar' if p.fechado else 'Continuar' }}</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
-  <div>
-    <label class="block text-xs text-gray-500 mb-1" for="nq-mes">Mês</label>
-    <select id="nq-mes" name="mes" class="rounded-lg border border-borda px-2 py-1.5 bg-white">
-      {% for m in range(1, 13) %}<option value="{{ m }}">{{ m | nome_mes }}</option>{% endfor %}
-    </select>
-  </div>
-  <div>
-    <label class="block text-xs text-gray-500 mb-1" for="nq-ano">Ano</label>
-    <input id="nq-ano" type="number" name="ano" value="2026" class="w-24 rounded-lg border border-borda px-2 py-1.5">
-  </div>
-  <button class="px-4 py-1.5 rounded-lg bg-bangalo-500 text-white">Criar quinzena</button>
-</form>
+  <div class="table-meta"><span>{{ periodos | length }} quinzena(s). Total da aberta: recálculo do último salvamento; da fechada: valor pago.</span></div>
+  {% else %}
+    {% call ui.empty('Nenhuma quinzena ainda', 'Crie a quinzena para lançar comissões por dia e presenças.', 'coffee') %}
+      {% if current_user.pode('gorjetas.editar') %}<button type="button" class="btn primary" data-open="dlg-nova">Criar quinzena</button>{% endif %}
+    {% endcall %}
+  {% endif %}
+</section>
 
-<div class="bg-white rounded-2xl border border-borda overflow-x-auto">
-  <table class="min-w-full text-sm">
-    <thead>
-      <tr class="bg-creme border-b border-borda text-left">
-        <th class="px-4 py-2 font-semibold">Quinzena</th>
-        <th class="px-4 py-2 font-semibold">Período</th>
-        <th class="px-4 py-2 font-semibold num">Comissão bruta</th>
-        <th class="px-4 py-2 font-semibold">Status</th>
-        <th class="px-4 py-2"></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for p in periodos %}
-      <tr class="border-b border-borda/60 hover:bg-creme/60">
-        <td class="px-4 py-2 font-medium">{{ p.referencia }}</td>
-        <td class="px-4 py-2">{{ p.data_inicio | data_curta }} – {{ p.data_fim | data_curta }}</td>
-        <td class="px-4 py-2 num">{{ p.comissao_bruta | brl }}</td>
-        <td class="px-4 py-2">
-          {% if p.fechado %}
-            <span class="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">Fechada</span>
-          {% else %}
-            <span class="px-2 py-0.5 rounded-full text-xs bg-green-50 text-ok border border-green-200">Aberta</span>
-          {% endif %}
-        </td>
-        <td class="px-4 py-2 text-right">
-          <a href="{{ url_for('gorjetas.detalhe', periodo_id=p.id) }}" class="text-bangalo-600 hover:underline text-xs">
-            {{ 'Ver histórico' if p.fechado else 'Operar' }}
-          </a>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">Nenhuma quinzena criada ainda.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+{% set ordem_padrao = 1 if hoje.day <= 15 else 2 %}
+{% if current_user.pode('gorjetas.editar') %}
+{% call ui.dialog('dlg-nova', 'Criar quinzena') %}
+  <form method="post" action="{{ url_for('gorjetas.criar_periodo') }}" id="form-nova" class="dialog-body" data-busy="Criando…">
+    {{ ui.csrf() }}
+    <p class="muted">Se a quinzena já existir, você será levado até ela — nada é duplicado.</p>
+    <div class="form-grid">
+      {{ ui.field('ordem_quinzena', 'Quinzena', ordem_padrao, 'select', True, opcoes=[(1, '1ª (dias 1–15)'), (2, '2ª (dia 16 ao fim)')], id='nq-quinzena') }}
+      <div class="field">
+        <label for="nq-mes">Mês <span class="required" aria-hidden="true">*</span></label>
+        <select id="nq-mes" name="mes" required>{% for m in range(1, 13) %}<option value="{{ m }}" {{ 'selected' if m == hoje.month }}>{{ m | nome_mes }}</option>{% endfor %}</select>
+      </div>
+      {{ ui.field('ano', 'Ano', hoje.year, 'number', True, id='nq-ano', attrs='min="2020" max="2100"') }}
+    </div>
+    <p class="help">A meta da quinzena vem das metas do mês e a equipe da última quinzena fechada.</p>
+  </form>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="form-nova" class="btn primary">Criar quinzena</button>
+  </div>
+{% endcall %}
+{% endif %}
 {% endblock %}

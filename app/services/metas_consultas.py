@@ -25,6 +25,14 @@ def premissas_do_ano(ano: int) -> engine.Premissas:
     )
 
 
+def excecoes_do_mes(registros) -> tuple[set, set]:
+    """Exceções do calendário padrão a partir do registro diário:
+    (dias fechados fora de segunda, segundas abertas)."""
+    fechados = {d for d, r in registros.items() if not r.aberto and d.weekday() != 0}
+    abertos = {d for d, r in registros.items() if r.aberto and d.weekday() == 0}
+    return fechados, abertos
+
+
 def carregar_historico() -> dict[int, dict[int, Decimal]]:
     """{ano: {mes: valor}} com toda a matriz de faturamento histórico."""
     historico: dict[int, dict[int, Decimal]] = {}

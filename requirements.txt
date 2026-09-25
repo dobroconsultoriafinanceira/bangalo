@@ -1,6 +1,7 @@
 # Produção — Python 3.12 (imagem python:3.12-slim)
 Flask==3.0.3
-Werkzeug==3.0.3
+Jinja2==3.1.6  # CVE-2024-56201/56326, CVE-2025-27516
+Werkzeug==3.0.6  # CVE-2024-49766/49767
 Flask-SQLAlchemy==3.1.1
 SQLAlchemy==2.0.43
 Flask-Migrate==4.0.7
@@ -9,8 +10,12 @@ Flask-Mail==0.10.0
 Flask-WTF==1.2.1
 APScheduler==3.10.4
 python-dotenv==1.0.1
-gunicorn==22.0.0
+gunicorn==23.0.0  # CVE-2024-6827 (request smuggling)
 psycopg2-binary==2.9.9
 openpyxl==3.1.5
 google-api-python-client==2.137.0
 google-auth==2.32.0
+requests==2.32.4  # CVE-2024-47081
+cryptography==44.0.1  # CVE-2024-12797
+xlrd==2.0.1
+reportlab==5.0.1  # PDFs de gorjeta/férias

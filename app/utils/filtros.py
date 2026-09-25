@@ -12,8 +12,11 @@ MESES_ABREV_PT = ["", "JAN", "FEV", "MAR", "ABR", "MAI", "JUN",
 DIAS_SEMANA_PT = ["Seg.", "Ter.", "Qua.", "Qui.", "Sex.", "Sáb.", "Dom."]
 
 
-def format_brl(valor, com_simbolo: bool = True) -> str:
-    """1234567.8 -> 'R$ 1.234.567,80' (negativos entre parênteses)."""
+def format_brl(valor, com_simbolo: bool = True, sinal: bool = False) -> str:
+    """1234567.8 -> 'R$ 1.234.567,80'.
+
+    Negativos entre parênteses (relatórios em PDF) ou com sinal `-R$` (telas
+    Clareza: `sinal=True`)."""
     if valor is None:
         return "—"
     valor = Decimal(str(valor))
@@ -26,7 +29,21 @@ def format_brl(valor, com_simbolo: bool = True) -> str:
     texto = ".".join(reversed(grupos)) + "," + centavos
     if com_simbolo:
         texto = "R$ " + texto
-    return f"({texto})" if negativo else texto
+    if negativo:
+        return f"-{texto}" if sinal else f"({texto})"
+    return texto
+
+
+def format_brl_abreviado(valor) -> str:
+    """Eixos e rótulos curtos: 15 mil, 1,2 mi."""
+    if valor is None:
+        return "—"
+    v = float(valor)
+    if abs(v) >= 1_000_000:
+        return f"{v / 1_000_000:.1f} mi".replace(".", ",")
+    if abs(v) >= 1_000:
+        return f"{v / 1_000:.0f} mil"
+    return f"R$ {v:.0f}"
 
 
 def format_data(valor, formato: str = "%d/%m/%Y") -> str:
@@ -58,7 +75,8 @@ def dia_semana_pt(valor: date) -> str:
 
 
 def registrar(app):
-    app.jinja_env.filters["brl"] = format_brl
+    app.jinja_env.filters["brl"] = lambda valor, com_simbolo=True: format_brl(valor, com_simbolo, sinal=True)
+    app.jinja_env.filters["brl_abrev"] = format_brl_abreviado
     app.jinja_env.filters["data"] = format_data
     app.jinja_env.filters["data_curta"] = format_data_curta
     app.jinja_env.filters["pct"] = format_pct

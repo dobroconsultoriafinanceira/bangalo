@@ -1,261 +1,176 @@
 {% extends "base.html" %}
-{% block titulo %}Dashboard{% endblock %}
+{% block titulo %}Visão geral{% endblock %}
 {% block conteudo %}
 
-{# ── Cabeçalho ── #}
-<div class="s-in flex items-center justify-between mb-6">
-  <div>
-    <h1 class="font-titulo text-2xl font-semibold text-tinta">Visão geral</h1>
-    <p class="text-sm text-gray-400 mt-0.5">{{ hoje | data }} · Restaurante Bangalô</p>
-  </div>
-  <div class="flex items-center gap-2">
-    <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Bangalô" class="h-8 w-auto opacity-90">
-  </div>
-</div>
+{% call ui.page_header('Visão geral', ('01 a ' ~ (corte | data('%d')) ~ ' de ' ~ (mes_sel | nome_mes | lower) ~ ' de ' ~ ano_sel) if corte >= fim_mes.replace(day=1) else ((mes_sel | nome_mes) ~ ' de ' ~ ano_sel ~ ' · ainda não começou')) %}
+  {% if current_user.pode('caixa.editar') %}<a class="btn primary" href="{{ url_for('fluxo_caixa.lancamentos', novo='dinheiro') }}">{{ ui.icon('plus') }}Entrada em dinheiro</a>{% endif %}
+{% endcall %}
 
-{# ── KPIs — 8 cards em 2 linhas de 4 ── #}
-<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+{# ── Três indicadores prioritários ─────────────────────────────────── #}
+<section class="metrics" aria-label="Indicadores do período">
+  {{ ui.metric('Faturamento', linha_meta.realizado | brl if linha_meta.realizado is not none else None,
+               'Registro diário · 01 a ' ~ (corte | data('%d/%m')),
+               fonte='Fonte: registro diário (PDV)') }}
+  {{ ui.metric('Resultado de caixa', real.resultado | brl,
+               'Entradas - Saídas · até ' ~ (corte | data('%d/%m')),
+               'bad' if real.resultado < 0 else '',
+               fonte='Fonte: Stone (cartões), Itaú (extrato) e dinheiro lançado à mão') }}
+  {% if saldo_itau %}
+    {{ ui.metric('Saldo Itaú', saldo_itau.disponivel | brl,
+                 ('Saldo em ' ~ (saldo_itau.data | data('%d/%m'))) if saldo_itau.data else 'Conta corrente',
+                 fonte=('Extrato Itaú · sincronizado ' ~ (itau_ultima_sync | data('%d/%m às %Hh%M'))
+                        ~ (' · atrasado há mais de ' ~ shell_itau.limite_h ~ ' h' if shell_itau.atrasado else ''))
+                       if itau_ultima_sync else 'Extrato Itaú · nunca sincronizado',
+                 fonte_alerta=(shell_itau.atrasado or not itau_ultima_sync)) }}
+  {% else %}
+    {{ ui.metric('Saldo Itaú', None, 'Sincronize o extrato em Movimentações',
+                 fonte='Extrato Itaú · nunca sincronizado', fonte_alerta=True) }}
+  {% endif %}
+</section>
 
-  {# 1. Saldo Itaú #}
-  <div class="s-in d1 s-hover bg-white rounded-2xl border border-borda p-5">
-    <div class="flex items-start justify-between gap-2">
-      <p class="text-xs font-medium uppercase tracking-wide text-gray-400">Saldo Itaú</p>
-      <span class="w-8 h-8 rounded-lg bg-blue-50 text-blue-500 grid place-items-center shrink-0">
-        <i data-lucide="landmark" class="w-4 h-4"></i>
-      </span>
+<div class="grid-two">
+  {# ── Faturamento e meta (acumulado do mês) ── #}
+  <section class="surface" aria-labelledby="t-grafico">
+    <div class="section-top">
+      <h2 id="t-grafico">Faturamento e meta</h2>
+      <a href="{{ url_for('metas.registro_diario') }}">Ver metas</a>
     </div>
-    <p class="mt-3 text-2xl font-semibold font-titulo text-gray-300">—</p>
-    <p class="mt-1 text-[11px] text-gray-400 flex items-center gap-1">
-      <span class="inline-block px-1.5 py-0.5 rounded text-[10px] bg-amber-50 text-alerta font-medium">Em breve</span>
-      API Itaú PJ
-    </p>
-  </div>
-
-  {# 2. Entradas #}
-  <div class="s-in d2 s-hover bg-white rounded-2xl border border-borda p-5">
-    <div class="flex items-start justify-between gap-2">
-      <p class="text-xs font-medium uppercase tracking-wide text-gray-400">Entradas</p>
-      <span class="w-8 h-8 rounded-lg bg-green-50 text-ok grid place-items-center shrink-0">
-        <i data-lucide="trending-up" class="w-4 h-4"></i>
-      </span>
-    </div>
-    <p class="mt-3 text-2xl font-semibold font-titulo text-ok">{{ entradas_mes | brl }}</p>
-    <div class="mt-1 flex items-center gap-1.5">
-      {% if delta_entradas is not none %}
-        {% if delta_entradas >= 0 %}
-          <span class="delta-badge delta-up"><i data-lucide="arrow-up" class="w-3 h-3"></i>{{ "%.1f"|format(delta_entradas) }}%</span>
-        {% else %}
-          <span class="delta-badge delta-down"><i data-lucide="arrow-down" class="w-3 h-3"></i>{{ "%.1f"|format(delta_entradas | abs) }}%</span>
-        {% endif %}
-        <span class="text-[11px] text-gray-400">vs. mês anterior</span>
-      {% else %}
-        <span class="text-[11px] text-gray-400">sem base</span>
-      {% endif %}
-    </div>
-  </div>
-
-  {# 3. Saídas #}
-  <div class="s-in d3 s-hover bg-white rounded-2xl border border-borda p-5">
-    <div class="flex items-start justify-between gap-2">
-      <p class="text-xs font-medium uppercase tracking-wide text-gray-400">Saídas</p>
-      <span class="w-8 h-8 rounded-lg bg-red-50 text-erro grid place-items-center shrink-0">
-        <i data-lucide="trending-down" class="w-4 h-4"></i>
-      </span>
-    </div>
-    <p class="mt-3 text-2xl font-semibold font-titulo text-erro">{{ saidas_mes | brl }}</p>
-    <div class="mt-1 flex items-center gap-1.5">
-      {% if delta_saidas is not none %}
-        {% if delta_saidas > 0 %}
-          <span class="delta-badge delta-down"><i data-lucide="arrow-up" class="w-3 h-3"></i>{{ "%.1f"|format(delta_saidas) }}%</span>
-        {% else %}
-          <span class="delta-badge delta-up"><i data-lucide="arrow-down" class="w-3 h-3"></i>{{ "%.1f"|format(delta_saidas | abs) }}%</span>
-        {% endif %}
-        <span class="text-[11px] text-gray-400">vs. mês anterior</span>
-      {% else %}
-        <span class="text-[11px] text-gray-400">sem base</span>
-      {% endif %}
-    </div>
-  </div>
-
-  {# 4. Resultado #}
-  <div class="s-in d4 s-hover bg-white rounded-2xl border border-borda p-5">
-    <div class="flex items-start justify-between gap-2">
-      <p class="text-xs font-medium uppercase tracking-wide text-gray-400">Resultado</p>
-      <span class="w-8 h-8 rounded-lg bg-bangalo-50 text-bangalo-500 grid place-items-center shrink-0">
-        <i data-lucide="scale" class="w-4 h-4"></i>
-      </span>
-    </div>
-    <p class="mt-3 text-2xl font-semibold font-titulo {{ 'text-ok' if resultado_mes >= 0 else 'text-erro' }}">
-      {{ resultado_mes | brl }}
-    </p>
-    <p class="mt-1 text-[11px] text-gray-400">Entradas − Saídas</p>
-  </div>
-
-  {# 5. Meta #}
-  <div class="s-in d5 s-hover bg-white rounded-2xl border border-borda p-5">
-    <div class="flex items-start justify-between gap-2">
-      <p class="text-xs font-medium uppercase tracking-wide text-gray-400">Meta de {{ hoje.month | nome_mes }}</p>
-      <span class="w-8 h-8 rounded-lg bg-amber-50 text-alerta grid place-items-center shrink-0">
-        <i data-lucide="target" class="w-4 h-4"></i>
-      </span>
-    </div>
-    <p class="mt-3 text-2xl font-semibold font-titulo">
-      {% if linha_meta.pct_meta is not none %}
-        <span class="{{ 'text-ok' if linha_meta.pct_meta >= 1 else 'text-alerta' if linha_meta.pct_meta >= 0.9 else 'text-erro' }}">
-          {{ linha_meta.pct_meta | pct }}
-        </span>
-      {% else %}—{% endif %}
-    </p>
-    <p class="mt-1 text-[11px] text-gray-400">{{ linha_meta.realizado | brl }} de {{ linha_meta.meta | brl }}</p>
-    {% if linha_meta.pct_meta is not none %}
-    <div class="mt-3 h-1 rounded-full bg-gray-100 overflow-hidden">
-      {% set larg = [(linha_meta.pct_meta * 100)|round(0,'floor'), 100]|min %}
-      <div class="h-full rounded-full transition-all duration-700 {{ 'bg-ok' if linha_meta.pct_meta >= 1 else 'bg-bangalo-500' }}"
-           style="width:{{ larg }}%"></div>
-    </div>
-    {% endif %}
-  </div>
-
-  {# 6. CMV do mês #}
-  <div class="s-in d6 s-hover bg-white rounded-2xl border border-borda p-5">
-    <div class="flex items-start justify-between gap-2">
-      <p class="text-xs font-medium uppercase tracking-wide text-gray-400">CMV do mês</p>
-      <span class="w-8 h-8 rounded-lg bg-orange-50 text-orange-500 grid place-items-center shrink-0">
-        <i data-lucide="shopping-cart" class="w-4 h-4"></i>
-      </span>
-    </div>
-    <p class="mt-3 text-2xl font-semibold font-titulo text-tinta">{{ cmv_mes | brl }}</p>
-    <p class="mt-1 text-[11px] text-gray-400">
-      {% if entradas_mes %}
-        {{ (cmv_mes / entradas_mes) | pct }} das entradas
-      {% else %}—{% endif %}
-    </p>
-  </div>
-
-  {# 7. Margem Bruta #}
-  <div class="s-in d7 s-hover bg-white rounded-2xl border border-borda p-5">
-    <div class="flex items-start justify-between gap-2">
-      <p class="text-xs font-medium uppercase tracking-wide text-gray-400">Margem Bruta</p>
-      <span class="w-8 h-8 rounded-lg bg-teal-50 text-teal-600 grid place-items-center shrink-0">
-        <i data-lucide="percent" class="w-4 h-4"></i>
-      </span>
-    </div>
-    <p class="mt-3 text-2xl font-semibold font-titulo
-              {{ 'text-ok' if margem_bruta and margem_bruta >= 0.5 else 'text-alerta' if margem_bruta else 'text-gray-300' }}">
-      {{ margem_bruta | pct if margem_bruta is not none else '—' }}
-    </p>
-    <p class="mt-1 text-[11px] text-gray-400">{{ (entradas_mes - cmv_mes) | brl }} após CMV</p>
-  </div>
-
-  {# 8. Margem Líquida #}
-  <div class="s-in d8 s-hover bg-white rounded-2xl border border-borda p-5">
-    <div class="flex items-start justify-between gap-2">
-      <p class="text-xs font-medium uppercase tracking-wide text-gray-400">Margem Líquida</p>
-      <span class="w-8 h-8 rounded-lg bg-violet-50 text-violet-600 grid place-items-center shrink-0">
-        <i data-lucide="gauge" class="w-4 h-4"></i>
-      </span>
-    </div>
-    <p class="mt-3 text-2xl font-semibold font-titulo
-              {{ 'text-ok' if margem_liquida and margem_liquida > 0 else 'text-erro' if margem_liquida is not none and margem_liquida <= 0 else 'text-gray-300' }}">
-      {{ margem_liquida | pct if margem_liquida is not none else '—' }}
-    </p>
-    <p class="mt-1 text-[11px] text-gray-400">{{ resultado_mes | brl }} resultado líquido</p>
-  </div>
-
-</div>
-
-{# ── Gráfico principal — Realizado × Meta (full width, como revenue chart) ── #}
-<div class="s-in d2 s-hover bg-white rounded-2xl border border-borda p-5 shadow-sm mb-6">
-  <div class="flex items-start justify-between gap-4 mb-4">
-    <div>
-      <h2 class="font-titulo font-semibold text-[15px] text-tinta">Realizado × Meta</h2>
-      <p class="text-xs text-gray-400 mt-0.5">Faturamento mensal · {{ hoje.year }}</p>
-    </div>
-    <div id="leg-metas" class="flex flex-wrap gap-4 pt-0.5"></div>
-  </div>
-  <div class="relative h-64"><canvas id="grafico-metas"></canvas></div>
-</div>
-
-{# ── Linha inferior: Fluxo (2 cols) + Donut despesas (1 col) + Quick actions (1 col) ── #}
-<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-
-  {# Fluxo mensal — 2 colunas #}
-  <div class="s-in d3 s-hover bg-white rounded-2xl border border-borda p-5 shadow-sm md:col-span-2">
-    <div class="flex items-start justify-between gap-4 mb-4">
-      <div>
-        <h2 class="font-titulo font-semibold text-[15px] text-tinta">Fluxo de caixa mensal</h2>
-        <p class="text-xs text-gray-400 mt-0.5">Entradas, saídas e resultado · {{ hoje.year }}</p>
-      </div>
-      <div id="leg-fluxo" class="flex flex-wrap gap-4 pt-0.5"></div>
-    </div>
-    <div class="relative h-52"><canvas id="grafico-fluxo"></canvas></div>
-  </div>
-
-  {# Donut despesas por grupo #}
-  <div class="s-in d4 s-hover bg-white rounded-2xl border border-borda p-5">
-    <h2 class="font-titulo font-semibold text-[15px] text-tinta mb-1 flex items-center gap-2">
-      <i data-lucide="pie-chart" class="w-4 h-4 text-bangalo-500"></i>Despesas
-    </h2>
-    <p class="text-xs text-gray-400 mb-3">Por grupo · mês atual</p>
-    {% if ranking %}
-      <div class="relative h-36"><canvas id="grafico-donut"></canvas></div>
-      <div id="leg-donut" class="mt-3 grid grid-cols-2 gap-x-2 gap-y-1.5"></div>
-    {% else %}
-      <p class="text-sm text-gray-400 mt-4">Sem despesas neste mês.</p>
-    {% endif %}
-  </div>
-
-  {# Quick actions — gorjetas + navegação rápida #}
-  <div class="s-in d5 bg-white rounded-2xl border border-borda p-5">
-    <h2 class="font-titulo font-semibold text-[15px] text-tinta mb-1 flex items-center gap-2">
-      <i data-lucide="zap" class="w-4 h-4 text-bangalo-500"></i>Atalhos
-    </h2>
-    <p class="text-xs text-gray-400 mb-3">Acesso rápido</p>
-    <div class="space-y-1">
-      {% set acoes = [
-        (url_for('fluxo_caixa.visao_mensal_view'), 'arrow-right-left', 'Fluxo de caixa',  'Ver lançamentos do mês'),
-        (url_for('gorjetas.listar'),                'hand-coins',       'Gorjetas',         'Quinzenas e rateios'),
-        (url_for('metas.painel'),                   'target',           'Metas',            'Acompanhar faturamento'),
-        (url_for('cadastros.categorias'),           'folder-cog',       'Cadastros',        'Categorias e parceiros'),
-      ] %}
-      {% for url, icone, titulo, desc in acoes %}
-      <a href="{{ url }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-bangalo-50 group">
-        <span class="w-8 h-8 rounded-lg bg-bangalo-50 text-bangalo-500 grid place-items-center shrink-0
-                     group-hover:bg-bangalo-500 group-hover:text-white transition-colors">
-          <i data-lucide="{{ icone }}" class="w-4 h-4"></i>
-        </span>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-medium text-tinta">{{ titulo }}</p>
-          <p class="text-[11px] text-gray-400 leading-tight">{{ desc }}</p>
+    <div class="legend" aria-hidden="true"><span>Faturamento</span><span>Meta</span></div>
+    {% if serie_faturamento | selectattr('realizado') | list or serie_faturamento | selectattr('meta') | list %}
+      <div class="chart-box"><canvas id="grafico-faturamento" role="img"
+        aria-label="Faturamento acumulado de {{ mes_sel | nome_mes | lower }} comparado à meta acumulada"></canvas></div>
+      <p class="chart-note">Acumulado do mês. Passe o mouse, toque ou use a tabela abaixo para consultar valores.</p>
+      <details class="expand">
+        <summary>{{ ui.icon('chevron-right') }}Ver dados em tabela</summary>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Dia</th><th class="num">Faturamento acumulado</th><th class="num">Meta acumulada</th></tr></thead>
+            <tbody>
+              {% for p in serie_faturamento %}
+                <tr><td>{{ p.dia }}</td>
+                  <td class="num">{{ p.realizado | brl if p.realizado is not none else '—' }}</td>
+                  <td class="num">{{ p.meta | brl if p.meta is not none else '—' }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
-        <i data-lucide="chevron-right" class="w-4 h-4 text-gray-300 group-hover:text-bangalo-500 shrink-0"></i>
-      </a>
-      {% endfor %}
+      </details>
+    {% else %}
+      {{ ui.empty('Sem faturamento registrado', 'O gráfico usa o registro diário de faturamento e a meta do mês.', 'chart-line') }}
+    {% endif %}
+  </section>
 
-      {% if proxima_quinzena %}
-      <div class="mt-2 pt-2 border-t border-borda">
-        <p class="text-[11px] text-gray-400 px-3 mb-1.5">Próxima quinzena</p>
-        <a href="{{ url_for('gorjetas.detalhe', periodo_id=proxima_quinzena.id) }}"
-           class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-bangalo-50 group">
-          <span class="w-8 h-8 rounded-lg bg-amber-50 text-alerta grid place-items-center shrink-0
-                       group-hover:bg-bangalo-500 group-hover:text-white transition-colors">
-            <i data-lucide="calendar-clock" class="w-4 h-4"></i>
-          </span>
-          <div class="flex-1 min-w-0">
-            <p class="text-sm font-medium text-tinta truncate">{{ proxima_quinzena.referencia }}</p>
-            <p class="text-[11px] text-gray-400">
-              {{ proxima_quinzena.data_inicio | data_curta }} – {{ proxima_quinzena.data_fim | data_curta }}
-              · {{ proxima_quinzena.comissao_bruta | brl }}
-            </p>
-          </div>
-          <i data-lucide="chevron-right" class="w-4 h-4 text-gray-300 group-hover:text-bangalo-500 shrink-0"></i>
-        </a>
-      </div>
+  {# ── Para hoje: pendências do extrato ── #}
+  <section class="surface tasks" aria-labelledby="t-hoje">
+    <div class="section-top">
+      <h2 id="t-hoje">Para hoje</h2>
+      <small>{{ hoje | data('%d') }} de {{ hoje.month | nome_mes | lower }}</small>
+    </div>
+    {% set periodo = {'inicio': pendencias.inicio.isoformat(), 'fim': pendencias.fim.isoformat()} %}
+    <a class="pending" href="{{ url_for('conciliacao.itau', status='classificar', **periodo) }}">
+      <span class="symbol">{{ ui.icon('file-text') }}</span>
+      <span><strong>{{ pendencias.classificar }}</strong><small>movimentos a classificar no mês</small></span>
+      <span class="chevron">{{ ui.icon('chevron-right') }}</span>
+    </a>
+    {% if pendencias.sem_fornecedor %}
+    <a class="pending" href="{{ url_for('conciliacao.itau', status='classificar', **periodo) }}">
+      <span class="symbol">{{ ui.icon('truck') }}</span>
+      <span><strong>{{ pendencias.sem_fornecedor }}</strong><small>pagamentos sem fornecedor ligado</small></span>
+      <span class="chevron">{{ ui.icon('chevron-right') }}</span>
+    </a>
+    {% endif %}
+    {% if proxima_quinzena %}
+    <a class="pending" href="{{ url_for('gorjetas.detalhe', periodo_id=proxima_quinzena.id) }}">
+      <span class="symbol">{{ ui.icon('coffee') }}</span>
+      <span><strong class="nowrap" style="font-size:18px">{{ proxima_quinzena.referencia }}</strong><small>gorjetas em aberto</small></span>
+      <span class="chevron">{{ ui.icon('chevron-right') }}</span>
+    </a>
+    {% endif %}
+    <div class="task-footer">
+      <a class="btn primary wide task-action" href="{{ url_for('conciliacao.itau') }}">Abrir movimentações</a>
+    </div>
+  </section>
+</div>
+
+{# ── Últimos movimentos do extrato ── #}
+<section class="surface" aria-labelledby="t-ultimos">
+  <div class="section-top">
+    <h2 id="t-ultimos">Últimos movimentos</h2>
+    <a href="{{ url_for('conciliacao.itau') }}">Ver todos</a>
+  </div>
+  {% if ultimos_movimentos %}
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Data</th><th>Contraparte / descrição</th><th class="num">Valor</th><th>Origem</th></tr></thead>
+      <tbody>
+        {% for m in ultimos_movimentos %}
+        {% set valor = m.valor if m.tipo == 'credito' else -m.valor %}
+        <tr>
+          <td data-label="Data">{{ m.data | data }}</td>
+          <td data-label="Contraparte" class="wrap"><a href="{{ url_for('conciliacao.itau', inicio=m.data.isoformat(), fim=m.data.isoformat()) }}">{{ m.contraparte or m.descricao or '—' }}</a></td>
+          <td data-label="Valor" class="num">{{ valor | brl }}</td>
+          <td data-label="Origem">Itaú</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="muted mb-0">Nenhum movimento do extrato ainda. Eles aparecem depois da primeira sincronização com o Itaú.</p>
+  {% endif %}
+</section>
+
+{# ── Detalhamento sob demanda: indicadores secundários do mês ── #}
+<section class="surface" aria-labelledby="t-mais">
+  <details class="expand">
+    <summary id="t-mais">{{ ui.icon('chevron-right') }}Mais indicadores do mês</summary>
+    <div class="kpi-row mt-16">
+      <div class="kpi-mini"><div class="label">Entradas realizadas</div><div class="value">{{ real.entradas | brl }}</div>
+        <small>{% if delta_entradas is not none %}{{ '%+.1f' | format(delta_entradas) | replace('.', ',') }}% vs. mesmo período do mês anterior{% else %}sem base de comparação{% endif %}</small></div>
+      <div class="kpi-mini"><div class="label">Saídas realizadas</div><div class="value">{{ real.saidas | brl }}</div>
+        <small>{% if delta_saidas is not none %}{{ '%+.1f' | format(delta_saidas) | replace('.', ',') }}% vs. mesmo período do mês anterior{% else %}sem base de comparação{% endif %}</small></div>
+      <div class="kpi-mini"><div class="label">Previsto até {{ fim_mes | data('%d/%m') }}</div>
+        <div class="value">{{ (real.resultado + previsto.resultado) | brl }}</div>
+        <small>+ {{ previsto.entradas | brl }} entradas · − {{ previsto.saidas | brl }} saídas</small></div>
+      <div class="kpi-mini"><div class="label">Meta de {{ mes_sel | nome_mes | lower }}</div>
+        <div class="value">{{ linha_meta.pct_meta | pct if linha_meta.pct_meta is not none else '—' }}</div>
+        <small>{{ linha_meta.realizado | brl }} de {{ linha_meta.meta | brl }}</small></div>
+      <div class="kpi-mini"><div class="label">CMV realizado</div>
+        <div class="value">{{ real.pct_cmv | pct(1) if real.pct_cmv is not none else '—' }}</div>
+        <small>{{ real.cmv | brl }} em compras de insumos</small></div>
+      <div class="kpi-mini"><div class="label">Prime Cost</div>
+        <div class="value">{{ real.pct_prime_cost | pct(1) if real.pct_prime_cost is not none else '—' }}</div>
+        <small>CMV + pessoal ({{ real.pessoal | brl }}) · referência até 60–65%</small></div>
+      <div class="kpi-mini"><div class="label">Margem líquida</div>
+        <div class="value">{{ real.margem_liquida | pct(1) if real.margem_liquida is not none else '—' }}</div>
+        <small>{{ real.resultado | brl }} até {{ corte | data('%d/%m') }}</small></div>
+      {% if itau_mes %}
+      <div class="kpi-mini"><div class="label">Itaú no mês (operação)</div>
+        <div class="value">{{ (itau_mes.recebimentos - itau_mes.pagamentos) | brl }}</div>
+        <small>{{ itau_mes.recebimentos | brl }} recebido · {{ itau_mes.pagamentos | brl }} pago</small></div>
       {% endif %}
     </div>
-  </div>
 
-</div>
+    <div class="grid-even mt-24">
+      <div>
+        <div class="section-top"><h3 class="mb-0">Fluxo de caixa mensal · {{ ano_sel }}</h3></div>
+        <div class="legend legend-free" aria-hidden="true"><span class="l-green">Entradas</span><span class="l-gray">Saídas</span><span class="l-line">Resultado</span></div>
+        <div class="chart-box"><canvas id="grafico-fluxo" role="img" aria-label="Entradas, saídas e resultado por mês"></canvas></div>
+      </div>
+      <div>
+        <div class="section-top"><h3 class="mb-0">Despesas por grupo · {{ mes_sel | nome_mes | lower }}</h3></div>
+        {% if ranking %}
+          <div class="chart-box"><canvas id="grafico-despesas" role="img" aria-label="Despesas por grupo no mês"></canvas></div>
+          <ul class="details-list">
+            {% for grupo, total in ranking %}<li><span>{{ grupo }}</span><span class="num">{{ total | brl }}</span></li>{% endfor %}
+          </ul>
+        {% else %}
+          <p class="muted">Sem despesas lançadas neste mês.</p>
+        {% endif %}
+      </div>
+    </div>
+  </details>
+</section>
 {% endblock %}
 
 {% block scripts %}
@@ -263,30 +178,24 @@
 <script src="{{ url_for('static', filename='js/graficos.js') }}"></script>
 <script>
 BangaloCharts.defaults();
+(function () {
+  const canvas = document.getElementById('grafico-faturamento');
+  if (canvas) BangaloCharts.faturamentoMeta(canvas, {{ serie_faturamento | tojson }});
 
-fetch('{{ url_for("dashboard.api_metas_anual", ano=hoje.year) }}')
-  .then(r => r.json())
-  .then(dados => BangaloCharts.metaVsRealizado(
-    document.getElementById('grafico-metas'),
-    document.getElementById('leg-metas'),
-    dados
-  ));
-
-fetch('{{ url_for("dashboard.api_fluxo_mensal", ano=hoje.year) }}')
-  .then(r => r.json())
-  .then(dados => BangaloCharts.fluxoMensal(
-    document.getElementById('grafico-fluxo'),
-    document.getElementById('leg-fluxo'),
-    dados
-  ));
-
-{% if ranking %}
-const rankingDados = {{ ranking_json | safe }};
-BangaloCharts.donutDespesas(
-  document.getElementById('grafico-donut'),
-  document.getElementById('leg-donut'),
-  rankingDados
-);
-{% endif %}
+  // gráficos secundários só quando o bloco é aberto (evita trabalho à toa)
+  const mais = document.querySelector('#t-mais').closest('details');
+  let desenhado = false;
+  mais.addEventListener('toggle', function () {
+    if (!mais.open || desenhado) return;
+    desenhado = true;
+    fetch('{{ url_for("dashboard.api_fluxo_mensal", ano=ano_sel) }}')
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(dados => BangaloCharts.fluxoMensal(document.getElementById('grafico-fluxo'), null, dados))
+      .catch(() => { document.getElementById('grafico-fluxo').parentElement.innerHTML =
+        '<p class="notice error">Não foi possível carregar o fluxo mensal. Recarregue a página para tentar de novo.</p>'; });
+    const despesas = document.getElementById('grafico-despesas');
+    if (despesas) BangaloCharts.donutDespesas(despesas, null, {{ ranking_json | tojson }});
+  });
+})();
 </script>
 {% endblock %}

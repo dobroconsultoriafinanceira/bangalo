@@ -34,3 +34,7 @@ Thumbs.db
 
 # Claude Code (config local da máquina)
 .claude/
+app/static/_preview/
+
+# Saídas locais de design/handoff (149 MB, não versionar)
+output/
