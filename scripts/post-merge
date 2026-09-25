@@ -1,0 +1,35 @@
+#!/bin/sh
+# Git hook: roda automaticamente após "git pull" que trouxer mudancas.
+# Instalado via: make setup
+set -e
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+echo ""
+echo "=========================================="
+echo " post-merge: analisando mudancas..."
+echo "=========================================="
+
+# Arquivos que mudaram entre o commit anterior e o atual
+CHANGED=$(git diff HEAD@{1} HEAD --name-only 2>/dev/null || echo "")
+
+if echo "$CHANGED" | grep -qE 'Dockerfile|requirements\.txt|entrypoint\.sh|docker-compose\.yml'; then
+    echo " Dependencias/Dockerfile/compose mudaram — rebuild com cache..."
+    docker compose build web
+    docker compose up -d web
+
+elif echo "$CHANGED" | grep -qE '\.(py|html|css|js|json)$|static/|templates/|migrations/'; then
+    echo " Codigo mudou — rebuild com cache (~30s)..."
+    docker compose build web
+    docker compose up -d web
+
+else
+    echo " Sem mudancas relevantes na app — nada a fazer."
+fi
+
+if echo "$CHANGED" | grep -q '^Caddyfile$'; then
+    echo ""
+    echo " ATENCAO: o Caddyfile mudou. Copie o bloco para /root/dobro/Caddyfile"
+    echo " e rode 'make caddy-reload'."
+fi

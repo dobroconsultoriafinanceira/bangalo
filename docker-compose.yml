@@ -1,12 +1,14 @@
-# Bangalô — produção na VPS (Hostinger)
+# Bangalô — produção na VPS (Hostinger, root@<ip>:/root/bangalo)
 #
-# Cenário recomendado (A): a VPS já tem um Caddy central servindo o
-# dashboard. da consultoria. Nesse caso NÃO suba o serviço `caddy` daqui:
-# adicione o bloco do Caddyfile deste repo ao Caddyfile central e aponte o
-# reverse proxy para bangalo_web:8000 (rede externa compartilhada abaixo).
+# A VPS já roda o stack do Dobro (/root/dobro), cujo Caddy é dono das portas
+# 80/443 e serve o site institucional e o dashboard. O Bangalô NÃO sobe Caddy
+# próprio: o container `bangalo_web` entra na rede do Caddy do Dobro
+# (`dobro_frontend`, externa aqui) e recebe o tráfego por reverse proxy.
+# Confira o nome real da rede com `docker network ls` — o Compose nomeia como
+# <pasta-do-projeto>_frontend.
 #
-# Cenário alternativo (B): VPS sem Caddy — suba com o profile "com-caddy":
-#   docker compose --profile com-caddy up -d
+# Deploy do dia a dia: `git pull` (o hook post-merge rebuilda) ou `make deploy`.
+# Cenário alternativo (VPS sem Caddy): `docker compose --profile com-caddy up -d`
 
 services:
   web:
@@ -17,6 +19,14 @@ services:
     environment:
       FLASK_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # VPS KVM1 (1 vCPU) — 2 workers. Suba se a VPS crescer.
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-120}
+    volumes:
+      # certificado/chave do Itaú (gerados por `flask itau-certificado`, fora do git)
+      - ./instance/itau:/srv/bangalo/instance/itau
+      # documentos do fechamento e PDFs exportados (fora do git, precisam de backup)
+      - ./instance/arquivos:/srv/bangalo/instance/arquivos
     depends_on:
       db:
         condition: service_healthy
@@ -24,12 +34,16 @@ services:
       - "8000"
     networks:
       - bangalo_interna
-      - proxy  # rede compartilhada com o Caddy central (cenário A)
+      - dobro_frontend  # rede do Caddy do stack do Dobro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
       interval: 30s
       timeout: 5s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 768M
 
   db:
     image: postgres:16-alpine
@@ -49,10 +63,14 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 384M
 
-  # Cenário B apenas — Caddy próprio (conflita com um Caddy central em 80/443)
+  # Cenário alternativo apenas — Caddy próprio (conflita com o Caddy do Dobro em 80/443)
   caddy:
-    image: caddy:2
+    image: caddy:2-alpine
     container_name: bangalo_caddy
     profiles: ["com-caddy"]
     restart: unless-stopped
@@ -73,6 +91,6 @@ volumes:
 
 networks:
   bangalo_interna:
-  proxy:
+  dobro_frontend:
     external: true
-    name: proxy  # crie na VPS: docker network create proxy (e conecte o Caddy central)
+    name: dobro_frontend
