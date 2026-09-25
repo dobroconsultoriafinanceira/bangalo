@@ -38,7 +38,7 @@ def upgrade():
     # as conciliações 1 para 1 já existentes viram itens
     op.execute("""
         INSERT INTO conciliacao_item (movimento_id, lancamento_id, automatica, criado_em)
-        SELECT id, lancamento_id, 1, COALESCE(conciliado_em, CURRENT_TIMESTAMP)
+        SELECT id, lancamento_id, TRUE, COALESCE(conciliado_em, CURRENT_TIMESTAMP)
         FROM movimento_bancario WHERE lancamento_id IS NOT NULL
     """)
 
