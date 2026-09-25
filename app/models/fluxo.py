@@ -125,7 +125,10 @@ class ConfigSistema(db.Model):
     __tablename__ = "config_sistema"
 
     chave: Mapped[str] = mapped_column(String(60), primary_key=True)
-    valor: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Text, nao String(255): os parametros de previsao do DRE sao um JSON que
+    # ja passa de 400 caracteres. O SQLite nao valida tamanho e aceitava calado;
+    # o Postgres recusa a linha.
+    valor: Mapped[str] = mapped_column(Text, nullable=False)
 
     @staticmethod
     def obter(chave: str, default: str | None = None) -> str | None:
