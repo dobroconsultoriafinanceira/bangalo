@@ -32,6 +32,14 @@ print("ERRO: banco nao ficou disponivel em 120s.")
 sys.exit(1)
 PYEOF
 
+# Comando avulso (`docker compose run --rm web <cmd>`): roda so ele, depois de o
+# banco estar de pe. Sem isto, tarefas pontuais como `flask db upgrade` ou o
+# script de migracao disparariam tambem o seed e o Gunicorn por cima.
+if [ "$#" -gt 0 ]; then
+    echo "--> Comando avulso: $*"
+    exec "$@"
+fi
+
 echo "--> Rodando flask db upgrade..."
 flask db upgrade
 
