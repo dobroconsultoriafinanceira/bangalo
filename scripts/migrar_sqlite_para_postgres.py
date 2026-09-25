@@ -18,8 +18,13 @@ Uso (dentro do container web, com o .db copiado para dentro):
 """
 import argparse
 import sys
+from pathlib import Path
 
-from sqlalchemy import create_engine, func, inspect, select, text
+# Rodado como `python scripts/...`, o sys.path aponta para scripts/ e o pacote
+# `app` da raiz nao seria encontrado.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from sqlalchemy import create_engine, func, inspect, select, text  # noqa: E402
 
 # Tabelas que NÃO atravessam: a versão do Alembic é responsabilidade do
 # `flask db upgrade`, e tabelas `_alembic_tmp_*` são sobras de migrations
